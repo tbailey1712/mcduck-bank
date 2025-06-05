@@ -1,0 +1,23 @@
+{
+  "name": "mcduck-bank-migration",
+  "version": "1.0.0",
+  "description": "Data migration script for McDuck Bank",
+  "main": "migrate-data.js",
+  "scripts": {
+    "migrate": "node migrate-data.js",
+    "verify": "node verify-migration.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "firebase",
+    "migration",
+    "firestore"
+  ],
+  "author": "McDuck Bank",
+  "license": "MIT"
+}
