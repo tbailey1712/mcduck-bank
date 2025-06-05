@@ -13,10 +13,32 @@
 
 # misc
 .DS_Store
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Security
+*.pem
+*.key
+*.crt
+secrets/
+
+# Terraform
+terraform/*.tfvars
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+
+# Firebase
+.firebaserc
+firebase-debug.log
+firestore-debug.log
+
+# Cloud Build
+cloudbuild-local.yaml
 
 npm-debug.log*
 yarn-debug.log*

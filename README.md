@@ -1,6 +1,96 @@
-# Getting Started with Create React App
+# McDuck Bank - Minimalist Online Banking App
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A modern, minimalist online banking application built with React and deployed on Google Cloud Platform (GCP). This application uses Firebase for authentication and data storage, with Google Auth integration.
+
+## Features
+
+- Google Authentication
+- Role-based access control (Admin/Customer)
+- Transaction management system
+- Pending withdrawal approval workflow
+- Responsive Material-UI design
+- Cloud-native architecture
+
+## Tech Stack
+
+- Frontend: React, Redux Toolkit, Material-UI
+- Authentication: Google Auth via Firebase
+- Database: Firebase Firestore
+- Deployment: Google Cloud Platform
+
+## Setup Instructions
+
+1. Install dependencies:
+```bash
+npm install
+```
+
+2. Configure Firebase:
+- Create a Firebase project
+- Enable Google Auth
+- Add your Firebase configuration to `.env` file:
+```
+REACT_APP_FIREBASE_API_KEY=your-api-key
+REACT_APP_FIREBASE_AUTH_DOMAIN=your-auth-domain
+REACT_APP_FIREBASE_PROJECT_ID=your-project-id
+REACT_APP_FIREBASE_STORAGE_BUCKET=your-storage-bucket
+REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+REACT_APP_FIREBASE_APP_ID=your-app-id
+```
+
+3. Start the development server:
+```bash
+npm start
+```
+
+## Project Structure
+
+```
+src/
+├── config/           # Firebase configuration
+├── components/       # Reusable UI components
+├── pages/           # Page components
+├── services/        # API services
+├── store/           # Redux store and slices
+└── index.js         # App entry point
+```
+
+## Deployment
+
+The application is designed to be deployed on Google Cloud Platform. Follow these steps:
+
+1. Create a GCP project
+2. Enable required APIs (Cloud Run, Cloud Build, etc.)
+3. Configure Cloud Build triggers for CI/CD
+4. Deploy using Cloud Run
+
+## Security Considerations
+
+- All sensitive data is stored in Firebase Firestore
+- Google Auth provides secure authentication
+- Role-based access control implemented
+- All API endpoints are authenticated
+- Environment variables for sensitive configuration
+
+## Future Enhancements
+
+- iOS companion app integration
+- Enhanced transaction history
+- Additional admin features
+- Real-time notifications
+- More detailed reporting capabilities
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a new Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Available Scripts
 

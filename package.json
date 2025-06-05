@@ -3,20 +3,50 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@firebase/app": "^0.13.0",
+    "@firebase/auth": "^1.10.6",
+    "@firebase/firestore": "^4.7.16",
+    "@mui/icons-material": "^7.1.0",
+    "@mui/material": "^7.1.0",
+    "@reduxjs/toolkit": "^2.8.2",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
+    "date-fns": "^4.1.0",
+    "firebase-admin": "^13.4.0",
+    "firebase-messaging": "^1.0.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-redux": "^9.2.0",
+    "react-router-dom": "^7.6.1",
     "react-scripts": "5.0.1",
+    "react-window": "^1.8.11",
+    "react-window-infinite-loader": "^1.0.10",
+    "uuid": "^11.1.0",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
     "start": "react-scripts start",
+    "prebuild": "node scripts/generate-build-number.js",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "test:watch": "react-scripts test --watchAll",
+    "test:coverage": "react-scripts test --coverage --watchAll=false",
+    "test:ci": "react-scripts test --coverage --watchAll=false --passWithNoTests",
+    "eject": "react-scripts eject",
+    "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint src --ext .js,.jsx,.ts,.tsx --fix",
+    "deploy": "npm run build && firebase deploy",
+    "deploy:hosting": "npm run build && firebase deploy --only hosting",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:cloud-build": "USE_CLOUD_BUILD=true ./scripts/deploy.sh",
+    "deploy:direct": "gcloud app deploy --quiet",
+    "dev-setup": "./scripts/dev-setup.sh",
+    "logs": "gcloud app logs tail -s default",
+    "emulators": "firebase emulators:start"
   },
   "eslintConfig": {
     "extends": [
@@ -35,5 +65,10 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "jest-environment-jsdom": "^30.0.0-beta.3",
+    "msw": "^2.8.7",
+    "prop-types": "^15.8.1"
   }
 }

@@ -1,0 +1,105 @@
+# App Engine configuration for McDuck Bank
+runtime: nodejs18
+
+# Automatic scaling for infrequent usage
+automatic_scaling:
+  min_instances: 0
+  max_instances: 10
+  min_idle_instances: 0
+  max_idle_instances: 1
+  min_pending_latency: automatic
+  max_pending_latency: 30ms
+  target_cpu_utilization: 0.6
+  target_throughput_utilization: 0.6
+
+# Environment variables
+env_variables:
+  NODE_ENV: production
+  REACT_APP_USE_FIREBASE_EMULATOR: false
+  REACT_APP_ENABLE_DEBUG: false
+  REACT_APP_ENABLE_ERROR_REPORTING: true
+
+# Security settings
+vpc_access_connector:
+  name: projects/PROJECT_ID/locations/REGION/connectors/CONNECTOR_NAME
+  egress_setting: private-ranges-only
+
+# Network settings
+network:
+  forwarded_ports:
+    - 8080
+
+# Static file handling
+handlers:
+  # Static assets with long cache
+  - url: /static/js/(.*)
+    static_files: build/static/js/\1
+    upload: build/static/js/.*
+    expiration: "1y"
+    secure: always
+    http_headers:
+      Cache-Control: "public, max-age=31536000, immutable"
+      
+  - url: /static/css/(.*)
+    static_files: build/static/css/\1
+    upload: build/static/css/.*
+    expiration: "1y"
+    secure: always
+    http_headers:
+      Cache-Control: "public, max-age=31536000, immutable"
+      
+  - url: /static/media/(.*)
+    static_files: build/static/media/\1
+    upload: build/static/media/.*
+    expiration: "1y"
+    secure: always
+    http_headers:
+      Cache-Control: "public, max-age=31536000, immutable"
+
+  # Service worker (no cache)
+  - url: /service-worker.js
+    static_files: build/service-worker.js
+    upload: build/service-worker.js
+    secure: always
+    http_headers:
+      Cache-Control: "no-cache, no-store, must-revalidate"
+
+  # Favicon and manifest
+  - url: /(favicon\.ico|manifest\.json|robots\.txt)
+    static_files: build/\1
+    upload: build/(favicon\.ico|manifest\.json|robots\.txt)
+    secure: always
+
+  # All other routes serve index.html (SPA routing)
+  - url: /.*
+    static_files: build/index.html
+    upload: build/index.html
+    secure: always
+    http_headers:
+      X-Frame-Options: "SAMEORIGIN"
+      X-XSS-Protection: "1; mode=block"
+      X-Content-Type-Options: "nosniff"
+      Referrer-Policy: "no-referrer-when-downgrade"
+
+# Skip files to reduce deployment size
+skip_files:
+  - ^(.*/)?#.*#$
+  - ^(.*/)?.*~$
+  - ^(.*/)?.*\.py[co]$
+  - ^(.*/)?.*/RCS/.*$
+  - ^(.*/)?\..*$
+  - ^(.*/)?node_modules/.*$
+  - ^(.*/)?src/.*$
+  - ^(.*/)?public/.*$
+  - ^(.*/)?scripts/.*$
+  - ^(.*/)?terraform/.*$
+  - ^(.*/)?\.git/.*$
+  - ^(.*/)?\.gitignore$
+  - ^(.*/)?README\.md$
+  - ^(.*/)?DEPLOYMENT\.md$
+  - ^(.*/)?SECURITY\.md$
+  - ^(.*/)?Dockerfile$
+  - ^(.*/)?docker.*$
+  - ^(.*/)?\.dockerignore$
+  - ^(.*/)?cloudbuild\.yaml$
+  - ^(.*/)?firebase\.json$
