@@ -124,8 +124,7 @@ export const logAuditEvent = async (eventType, user, details = {}, target = null
       }) : null,
       
       // Metadata
-      session_id: sessionStorage.getItem('session_id') || 'unknown',
-      created_at: Timestamp.fromDate(new Date())
+      session_id: sessionStorage.getItem('session_id') || 'unknown'
     });
     
     // Add to audit_logs collection
@@ -245,8 +244,8 @@ export const getAuditLogs = async (filters = {}, limitCount = 100) => {
       q = query(q, where('timestamp', '<=', Timestamp.fromDate(filters.end_date)));
     }
     
-    // Order by timestamp (most recent first) and limit
-    q = query(q, orderBy('timestamp', 'desc'), limit(limitCount));
+    // Just limit without ordering - we'll sort after processing due to mixed field names
+    q = query(q, limit(limitCount));
     
     console.log('🔎 Executing Firestore query...');
     const querySnapshot = await getDocs(q);
@@ -256,59 +255,61 @@ export const getAuditLogs = async (filters = {}, limitCount = 100) => {
     const logs = querySnapshot.docs.map(doc => {
       const data = doc.data();
       
-      // Handle timestamp with better error checking
+      // Handle both timestamp and created_at fields (legacy compatibility)
       let timestamp;
       try {
-        if (data.timestamp?.toDate) {
-          timestamp = data.timestamp.toDate();
-        } else if (data.timestamp) {
-          timestamp = new Date(data.timestamp);
+        const timestampField = data.timestamp || data.created_at;
+        
+        if (timestampField?.toDate) {
+          timestamp = timestampField.toDate();
+          console.log('🔥 Using Firestore timestamp.toDate():', timestamp.toISOString());
+        } else if (timestampField) {
+          // Handle various timestamp formats
+          if (typeof timestampField === 'string' || typeof timestampField === 'number') {
+            timestamp = new Date(timestampField);
+          } else if (timestampField.seconds) {
+            // Handle Firestore Timestamp objects that didn't convert properly
+            timestamp = new Date(timestampField.seconds * 1000);
+          } else {
+            console.warn('🔥 Unknown timestamp field format:', typeof timestampField, timestampField);
+            timestamp = new Date();
+          }
+          
+          // Double-check the conversion worked
+          if (!isNaN(timestamp.getTime())) {
+            console.log('🔥 Converting timestamp field to Date:', timestamp.toISOString());
+          } else {
+            console.warn('🔥 Timestamp conversion failed, using current time');
+            timestamp = new Date();
+          }
         } else {
-          timestamp = new Date(); // fallback to current time
+          console.warn('🔥 No timestamp field found for log:', doc.id, 'using current time as fallback');
+          timestamp = new Date();
         }
         
         // Validate timestamp
         if (isNaN(timestamp.getTime())) {
-          console.warn('⚠️ Invalid timestamp for log:', doc.id, 'raw timestamp:', data.timestamp);
-          timestamp = new Date(); // fallback to current time
-        }
-      } catch (error) {
-        console.warn('⚠️ Error processing timestamp for log:', doc.id, error);
-        timestamp = new Date(); // fallback to current time
-      }
-      
-      // Handle created_at with better error checking
-      let created_at;
-      try {
-        if (data.created_at?.toDate) {
-          created_at = data.created_at.toDate();
-        } else if (data.created_at) {
-          created_at = new Date(data.created_at);
-        } else {
-          created_at = timestamp; // fallback to timestamp
+          console.warn('⚠️ Invalid timestamp for log:', doc.id, 'raw timestamp:', timestampField, 'using current time as fallback');
+          timestamp = new Date();
         }
         
-        // Validate created_at
-        if (isNaN(created_at.getTime())) {
-          console.warn('⚠️ Invalid created_at for log:', doc.id, 'raw created_at:', data.created_at);
-          created_at = timestamp; // fallback to timestamp
-        }
+        console.log('📄 Processing log document:', doc.id, 'timestamp:', timestamp, 'ISO:', timestamp.toISOString(), 'event:', data.event_type, 'raw field:', timestampField);
       } catch (error) {
-        console.warn('⚠️ Error processing created_at for log:', doc.id, error);
-        created_at = timestamp; // fallback to timestamp
+        console.warn('⚠️ Error processing timestamp for log:', doc.id, error);
+        timestamp = new Date();
       }
-      
-      console.log('📄 Processing log document:', doc.id, 'timestamp:', timestamp, 'event:', data.event_type);
       
       return {
         id: doc.id,
         ...data,
-        timestamp,
-        created_at
+        timestamp
       };
     });
     
-    console.log('✅ Returning', logs.length, 'processed logs');
+    // Sort by timestamp after processing (since we can't reliably order in Firestore with mixed field names)
+    logs.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    
+    console.log('✅ Returning', logs.length, 'processed logs, sorted by timestamp');
     return logs;
   } catch (error) {
     console.error('Error fetching audit logs:', error);
