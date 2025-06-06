@@ -24,6 +24,8 @@
 *.key
 *.crt
 secrets/
+serviceAccountKey.json
+**/serviceAccountKey.json
 
 # Terraform
 terraform/*.tfvars
