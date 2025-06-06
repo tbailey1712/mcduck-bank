@@ -27,13 +27,20 @@ import {
   IconButton,
   Tooltip,
   useTheme,
-  useMediaQuery
+  useMediaQuery,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Divider
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
   Download as DownloadIcon,
   Visibility as ViewIcon,
-  FilterList as FilterIcon
+  FilterList as FilterIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
 import { format, subDays, subHours } from 'date-fns';
 import auditService, { AUDIT_EVENTS } from '../services/auditService';
@@ -51,6 +58,7 @@ const AdminLogs = () => {
   const [error, setError] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [selectedLog, setSelectedLog] = useState(null);
 
   // Filters
   const [filters, setFilters] = useState({
@@ -371,9 +379,14 @@ const AdminLogs = () => {
                           <Typography variant="body2">
                             {(() => {
                               try {
+                                // Additional validation before formatting
+                                if (!log.timestamp || isNaN(log.timestamp.getTime())) {
+                                  console.warn('Invalid timestamp object for log:', log.id, 'timestamp:', log.timestamp);
+                                  return 'Invalid date';
+                                }
                                 return format(log.timestamp, 'MMM d, HH:mm:ss');
                               } catch (error) {
-                                console.warn('Error formatting timestamp for log:', log.id, error);
+                                console.warn('Error formatting timestamp for log:', log.id, error, 'timestamp:', log.timestamp);
                                 return 'Invalid date';
                               }
                             })()}
@@ -427,7 +440,7 @@ const AdminLogs = () => {
                           <Tooltip title="View Details">
                             <IconButton 
                               size="small"
-                              onClick={() => console.log('Log details:', log)}
+                              onClick={() => setSelectedLog(log)}
                             >
                               <ViewIcon />
                             </IconButton>
@@ -454,6 +467,113 @@ const AdminLogs = () => {
           </>
         )}
       </Paper>
+
+      {/* Log Details Dialog */}
+      <Dialog 
+        open={Boolean(selectedLog)} 
+        onClose={() => setSelectedLog(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        {selectedLog && (
+          <>
+            <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              Log Details
+              <IconButton onClick={() => setSelectedLog(null)}>
+                <CloseIcon />
+              </IconButton>
+            </DialogTitle>
+            <DialogContent>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="text.secondary">Event Type</Typography>
+                  <Chip
+                    label={formatEventType(selectedLog.event_type)}
+                    color={getEventTypeColor(selectedLog.event_type)}
+                    sx={{ mb: 2 }}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="text.secondary">Timestamp</Typography>
+                  <Typography variant="body1" sx={{ mb: 2 }}>
+                    {(() => {
+                      try {
+                        if (!selectedLog.timestamp || isNaN(selectedLog.timestamp.getTime())) {
+                          return 'Invalid date';
+                        }
+                        return format(selectedLog.timestamp, 'PPpp');
+                      } catch (error) {
+                        return 'Invalid date';
+                      }
+                    })()}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="text.secondary">User</Typography>
+                  <Typography variant="body1">{selectedLog.user_name}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    {selectedLog.user_email}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="text.secondary">IP Address</Typography>
+                  <Typography variant="body1" fontFamily="monospace" sx={{ mb: 2 }}>
+                    {selectedLog.ip_address}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="text.secondary">Browser</Typography>
+                  <Typography variant="body1" sx={{ mb: 2 }}>
+                    {selectedLog.browser}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="text.secondary">Platform</Typography>
+                  <Typography variant="body1" sx={{ mb: 2 }}>
+                    {selectedLog.platform}
+                  </Typography>
+                </Grid>
+                {selectedLog.session_id && (
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="text.secondary">Session ID</Typography>
+                    <Typography variant="body2" fontFamily="monospace" sx={{ mb: 2 }}>
+                      {selectedLog.session_id}
+                    </Typography>
+                  </Grid>
+                )}
+              </Grid>
+              
+              <Divider sx={{ my: 2 }} />
+              
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Event Details
+              </Typography>
+              <Paper 
+                variant="outlined" 
+                sx={{ 
+                  p: 2, 
+                  backgroundColor: 'grey.50',
+                  maxHeight: 300,
+                  overflow: 'auto'
+                }}
+              >
+                <pre style={{ 
+                  margin: 0, 
+                  fontFamily: 'monospace', 
+                  fontSize: '0.8em',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word'
+                }}>
+                  {JSON.stringify(selectedLog.details, null, 2)}
+                </pre>
+              </Paper>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setSelectedLog(null)}>Close</Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
     </Container>
   );
 };
