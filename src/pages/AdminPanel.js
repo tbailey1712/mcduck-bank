@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
+import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 import { Box, Container, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Paper, Card, CardContent, Grid, Alert, InputAdornment, useTheme, useMediaQuery, Stack, CircularProgress } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { collection, query, getDocs, addDoc, doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
@@ -12,9 +12,10 @@ import { getAuth } from 'firebase/auth';
 import { AdminTransactionForm } from '../components';
 import serverNotificationService from '../services/serverNotificationService';
 import auditService, { AUDIT_EVENTS } from '../services/auditService';
+import withdrawalDepositService from '../services/withdrawalDepositService';
 
 const AdminPanel = () => {
-  const { user, isAdmin } = useSelector((state) => state.auth);
+  const { user, isAdmin, updateActivity } = useUnifiedAuth();
   const navigate = useNavigate();
   
   // Responsive design
@@ -333,7 +334,20 @@ const AdminPanel = () => {
       await auditService.logTransactionEvent(
         AUDIT_EVENTS.TRANSACTION_CREATED,
         user,
-        transactionDoc,
+        {
+          transaction_id: docRef.id,
+          account_affected: transactionData.userId,
+          account_email: targetCustomer?.email || transactionData.userEmail || 'unknown',
+          account_name: targetCustomer?.displayName || targetCustomer?.name || 'unknown',
+          created_from: 'admin_panel',
+          transaction_details: {
+            amount: transactionData.amount,
+            transaction_type: transactionData.transactionType,
+            description: transactionData.description || '',
+            timestamp: new Date(),
+            user_id: transactionData.userId
+          }
+        },
         targetCustomer ? {
           id: targetCustomer.user_id,
           type: 'customer',
@@ -343,6 +357,34 @@ const AdminPanel = () => {
       );
       
       console.log('✅ Transaction audit logging completed');
+
+      // Create house deposit for withdrawals
+      if (transactionData.transactionType === 'withdrawal') {
+        try {
+          const transactionDoc = {
+            id: docRef.id,
+            user_id: transactionData.userId,
+            amount: transactionData.amount,
+            transaction_type: transactionData.transactionType,
+            comment: transactionData.description || '',
+            timestamp: new Date()
+          };
+
+          await withdrawalDepositService.createHouseDeposit(
+            transactionDoc,
+            docRef.id,
+            { 
+              uid: transactionData.userId,
+              email: transactionData.userEmail,
+              displayName: targetCustomer?.displayName || targetCustomer?.name
+            }
+          );
+          console.log('✅ House deposit created for admin withdrawal:', docRef.id);
+        } catch (houseDepositError) {
+          console.warn('⚠️ Failed to create house deposit for admin withdrawal:', houseDepositError);
+          // Don't fail the transaction if house deposit fails
+        }
+      }
 
       // Send notification for deposit/withdrawal
       try {
@@ -430,7 +472,32 @@ const AdminPanel = () => {
 
     try {
       const previousAmount = selectedTransaction.amount;
+      const previousDescription = selectedTransaction.comment || selectedTransaction.description || '';
       const newAmount = parseFloat(editAmount);
+      const newDescription = editDescription || '';
+      
+      // Track what changed
+      const changes = [];
+      
+      if (previousAmount !== newAmount) {
+        changes.push({
+          field: 'amount',
+          old_value: previousAmount,
+          new_value: newAmount,
+          formatted_old: `$${previousAmount.toFixed(2)}`,
+          formatted_new: `$${newAmount.toFixed(2)}`
+        });
+      }
+      
+      if (previousDescription !== newDescription) {
+        changes.push({
+          field: 'description',
+          old_value: previousDescription,
+          new_value: newDescription,
+          formatted_old: previousDescription || '(empty)',
+          formatted_new: newDescription || '(empty)'
+        });
+      }
       
       const transactionRef = doc(db, 'transactions', selectedTransaction.id);
       await updateDoc(transactionRef, {
@@ -438,19 +505,32 @@ const AdminPanel = () => {
         comment: editDescription
       });
 
-      // Log transaction edit for audit
+      // Log transaction edit for audit with detailed change tracking
       const targetCustomer = customers.find(c => c.user_id === selectedTransaction.user_id);
       
       await auditService.logTransactionEvent(
         AUDIT_EVENTS.TRANSACTION_EDITED,
         user,
         {
-          id: selectedTransaction.id,
-          transaction_type: selectedTransaction.transaction_type,
-          amount: newAmount,
-          previous_amount: previousAmount,
-          description: editDescription,
-          comment: editDescription
+          transaction_id: selectedTransaction.id,
+          account_edited: selectedTransaction.user_id || 'unknown',
+          account_email: targetCustomer?.email || 'unknown',
+          account_name: targetCustomer?.displayName || targetCustomer?.name || 'unknown',
+          changes_made: changes,
+          total_changes: changes.length,
+          edited_from: 'admin_panel',
+          original_values: {
+            amount: previousAmount,
+            description: previousDescription,
+            transaction_type: selectedTransaction.transaction_type,
+            timestamp: selectedTransaction.timestamp
+          },
+          new_values: {
+            amount: newAmount,
+            description: newDescription,
+            transaction_type: selectedTransaction.transaction_type,
+            timestamp: selectedTransaction.timestamp
+          }
         },
         targetCustomer ? {
           id: targetCustomer.user_id,
@@ -551,6 +631,7 @@ const AdminPanel = () => {
         loading={transactionLoading}
         error={transactionError}
       />
+
 
       {/* System Configuration Panel */}
       <Card sx={{ mb: 4 }}>
