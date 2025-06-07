@@ -16,6 +16,7 @@ import {
   validateTransactionDescription,
   validateForm 
 } from '../utils/validation';
+import { sanitizeTransactionData, analyzeSecurityRisk, secureLog } from '../utils/security';
 
 /**
  * Withdrawal form component with comprehensive validation
@@ -74,9 +75,32 @@ const WithdrawalForm = React.memo(({
     }
 
     try {
+      // Sanitize and validate transaction data for security
+      const sanitizedData = sanitizeTransactionData({
+        amount: formData.amount,
+        reason: formData.reason,
+        transaction_type: 'withdrawal'
+      });
+      
+      // Perform security risk analysis
+      const reasonRisk = analyzeSecurityRisk(sanitizedData.reason);
+      if (!reasonRisk.safe) {
+        setFormErrors({ 
+          reason: `Invalid reason: ${reasonRisk.issues.join(', ')}` 
+        });
+        return;
+      }
+      
+      // Log withdrawal attempt for security monitoring
+      secureLog('info', 'Withdrawal request initiated', {
+        amount: sanitizedData.amount,
+        hasReason: !!sanitizedData.reason,
+        userId: 'current_user' // Don't log actual user ID for security
+      });
+      
       await onSubmit({
-        amount: parseFloat(formData.amount),
-        reason: formData.reason.trim()
+        amount: parseFloat(sanitizedData.amount),
+        reason: sanitizedData.reason
       });
       
       // Reset form on successful submission
@@ -84,7 +108,7 @@ const WithdrawalForm = React.memo(({
       setFormErrors({});
     } catch (err) {
       // Error handled by parent component
-      console.error('Withdrawal submission error:', err);
+      secureLog('error', 'Withdrawal submission failed', { error: err.message });
     }
   }, [formData, onSubmit, validationRules]);
 
