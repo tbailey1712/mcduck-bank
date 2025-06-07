@@ -53,31 +53,46 @@ const cleanUndefinedValues = (obj) => {
 };
 
 /**
- * Get user's IP address and additional client info
+ * Get client information without external dependencies
+ * IP detection moved to server-side for security
  */
-const getClientInfo = async () => {
+const getClientInfo = () => {
   try {
-    // Get IP address from external service
-    const response = await fetch('https://api.ipify.org?format=json');
-    const data = await response.json();
+    // Parse user agent for browser detection
+    const userAgent = navigator.userAgent;
+    let browser = 'Other';
+    
+    if (userAgent.includes('Chrome') && !userAgent.includes('Edg')) {
+      browser = 'Chrome';
+    } else if (userAgent.includes('Firefox')) {
+      browser = 'Firefox';
+    } else if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) {
+      browser = 'Safari';
+    } else if (userAgent.includes('Edg')) {
+      browser = 'Edge';
+    }
     
     return {
-      ip_address: data.ip,
-      user_agent: navigator.userAgent,
-      browser: navigator.userAgent.includes('Chrome') ? 'Chrome' : 
-               navigator.userAgent.includes('Firefox') ? 'Firefox' :
-               navigator.userAgent.includes('Safari') ? 'Safari' : 'Other',
+      ip_address: 'server-detected', // Will be populated by Cloud Functions if available
+      user_agent: userAgent,
+      browser: browser,
       platform: navigator.platform,
-      language: navigator.language
+      language: navigator.language,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      screen_resolution: `${window.screen?.width || 'unknown'}x${window.screen?.height || 'unknown'}`,
+      viewport_size: `${window.innerWidth}x${window.innerHeight}`
     };
   } catch (error) {
-    console.warn('Could not get IP address:', error);
+    console.warn('Error getting client info:', error);
     return {
       ip_address: 'unknown',
-      user_agent: navigator.userAgent,
+      user_agent: navigator.userAgent || 'unknown',
       browser: 'unknown',
-      platform: navigator.platform,
-      language: navigator.language
+      platform: navigator.platform || 'unknown',
+      language: navigator.language || 'unknown',
+      timezone: 'unknown',
+      screen_resolution: 'unknown',
+      viewport_size: 'unknown'
     };
   }
 };
@@ -91,7 +106,7 @@ const getClientInfo = async () => {
  */
 export const logAuditEvent = async (eventType, user, details = {}, target = null) => {
   try {
-    const clientInfo = await getClientInfo();
+    const clientInfo = getClientInfo();
     
     const auditLog = cleanUndefinedValues({
       // Event information

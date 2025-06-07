@@ -1,295 +1,306 @@
 /**
- * Security Utilities for Banking Application
- * Provides additional security measures and checks
+ * Security utilities for XSS protection, input sanitization, and secure operations
+ * Provides comprehensive security measures for the banking application
  */
 
+import DOMPurify from 'dompurify';
+import { sanitizeInput, sanitizeObject } from './validation';
+
 /**
- * Check if Content Security Policy is supported and active
- * @returns {boolean} True if CSP is supported
+ * Security configuration
  */
-export const isCSPSupported = () => {
-  return typeof document.createElement('div').nonce !== 'undefined';
+const SECURITY_CONFIG = {
+  // DOMPurify configuration for different contexts
+  STRICT_HTML: {
+    ALLOWED_TAGS: [],
+    ALLOWED_ATTR: [],
+    KEEP_CONTENT: true
+  },
+  
+  SAFE_HTML: {
+    ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'p', 'br'],
+    ALLOWED_ATTR: [],
+    KEEP_CONTENT: true
+  },
+  
+  // Maximum input lengths
+  MAX_LENGTHS: {
+    displayName: 100,
+    description: 500,
+    comment: 200,
+    reason: 300,
+    generalText: 1000
+  },
+  
+  // Sensitive fields that should never contain HTML
+  SENSITIVE_FIELDS: [
+    'password',
+    'token',
+    'sessionId',
+    'amount',
+    'balance',
+    'accountNumber',
+    'routingNumber',
+    'ssn',
+    'taxId'
+  ]
 };
 
 /**
- * Generate a secure random nonce for inline scripts
- * @returns {string} Base64 encoded nonce
+ * Comprehensive input sanitization for user inputs
+ * @param {string} input - Input to sanitize
+ * @param {string} context - Context of the input (text, html, numeric, etc.)
+ * @returns {string} - Sanitized input
  */
-export const generateNonce = () => {
-  const array = new Uint8Array(16);
-  crypto.getRandomValues(array);
-  return btoa(String.fromCharCode.apply(null, array));
-};
-
-/**
- * Validate that we're running on HTTPS in production
- * @returns {boolean} True if secure context
- */
-export const isSecureContext = () => {
-  return window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost';
-};
-
-/**
- * Check for common security headers
- * @returns {Object} Security headers status
- */
-export const checkSecurityHeaders = async () => {
-  try {
-    const response = await fetch(window.location.href, { method: 'HEAD' });
-    const headers = {};
+export const secureSanitize = (input, context = 'text') => {
+  if (typeof input !== 'string') return '';
+  
+  switch (context) {
+    case 'html':
+      return DOMPurify.sanitize(input, SECURITY_CONFIG.SAFE_HTML);
     
-    // Check for important security headers
-    const securityHeaders = [
-      'content-security-policy',
-      'x-content-type-options',
-      'x-frame-options',
-      'x-xss-protection',
-      'strict-transport-security',
-      'referrer-policy'
-    ];
+    case 'strict':
+      return DOMPurify.sanitize(input, SECURITY_CONFIG.STRICT_HTML);
     
-    securityHeaders.forEach(header => {
-      headers[header] = response.headers.get(header) !== null;
-    });
+    case 'numeric':
+      // Only allow numbers, decimal points, and common currency symbols
+      return input.replace(/[^\d.\-$,]/g, '').trim();
     
-    return headers;
-  } catch (error) {
-    console.warn('Could not check security headers:', error);
-    return {};
+    case 'email':
+      // Basic email sanitization - remove dangerous characters
+      return input.replace(/[<>'"]/g, '').trim().toLowerCase();
+    
+    case 'filename':
+      // Safe filename characters only
+      return input.replace(/[^a-zA-Z0-9._-]/g, '').trim();
+    
+    case 'url':
+      // Basic URL sanitization
+      try {
+        const url = new URL(input);
+        return url.toString();
+      } catch {
+        return '';
+      }
+    
+    default: // 'text'
+      return sanitizeInput(input, { stripTags: true });
   }
 };
 
 /**
- * Validate URL to prevent open redirect attacks
- * @param {string} url - URL to validate
- * @param {Array} allowedDomains - List of allowed domains
- * @returns {boolean} True if URL is safe
+ * Sanitize form data before processing
+ * @param {Object} formData - Form data to sanitize
+ * @param {Object} fieldConfig - Configuration for each field
+ * @returns {Object} - Sanitized form data
  */
-export const isValidRedirectURL = (url, allowedDomains = []) => {
-  try {
-    const parsedURL = new URL(url, window.location.origin);
+export const sanitizeFormData = (formData, fieldConfig = {}) => {
+  const sanitized = {};
+  
+  for (const [key, value] of Object.entries(formData)) {
+    const config = fieldConfig[key] || {};
+    const context = config.context || 'text';
+    const maxLength = config.maxLength || SECURITY_CONFIG.MAX_LENGTHS.generalText;
     
-    // Only allow same origin by default
-    if (allowedDomains.length === 0) {
-      return parsedURL.origin === window.location.origin;
+    if (typeof value === 'string') {
+      // Sanitize and enforce length limits
+      let sanitizedValue = secureSanitize(value, context);
+      
+      if (sanitizedValue.length > maxLength) {
+        sanitizedValue = sanitizedValue.substring(0, maxLength);
+      }
+      
+      sanitized[key] = sanitizedValue;
+    } else if (typeof value === 'object' && value !== null) {
+      // Recursively sanitize nested objects
+      sanitized[key] = sanitizeObject(value, SECURITY_CONFIG.SENSITIVE_FIELDS);
+    } else {
+      sanitized[key] = value;
     }
-    
-    // Check against allowed domains
-    return allowedDomains.includes(parsedURL.hostname);
-  } catch (error) {
-    return false;
   }
+  
+  return sanitized;
 };
 
 /**
- * Check if browser has modern security features
- * @returns {Object} Browser security feature support
+ * Validate and sanitize transaction data
+ * @param {Object} transactionData - Transaction data to process
+ * @returns {Object} - Sanitized transaction data
  */
-export const checkBrowserSecurity = () => {
+export const sanitizeTransactionData = (transactionData) => {
+  const fieldConfig = {
+    description: { context: 'text', maxLength: SECURITY_CONFIG.MAX_LENGTHS.description },
+    comment: { context: 'text', maxLength: SECURITY_CONFIG.MAX_LENGTHS.comment },
+    reason: { context: 'text', maxLength: SECURITY_CONFIG.MAX_LENGTHS.reason },
+    amount: { context: 'numeric', maxLength: 20 },
+    type: { context: 'strict', maxLength: 50 },
+    transaction_type: { context: 'strict', maxLength: 50 }
+  };
+  
+  return sanitizeFormData(transactionData, fieldConfig);
+};
+
+/**
+ * Validate and sanitize profile data
+ * @param {Object} profileData - Profile data to process
+ * @returns {Object} - Sanitized profile data
+ */
+export const sanitizeProfileData = (profileData) => {
+  const fieldConfig = {
+    displayName: { context: 'text', maxLength: SECURITY_CONFIG.MAX_LENGTHS.displayName },
+    mobile: { context: 'numeric', maxLength: 20 },
+    email: { context: 'email', maxLength: 255 }
+  };
+  
+  return sanitizeFormData(profileData, fieldConfig);
+};
+
+/**
+ * Detect potentially dangerous content
+ * @param {string} input - Input to analyze
+ * @returns {Object} - Security analysis result
+ */
+export const analyzeSecurityRisk = (input) => {
+  if (typeof input !== 'string') {
+    return { safe: true, risk: 'none', issues: [] };
+  }
+  
+  const issues = [];
+  let riskLevel = 'none';
+  
+  // Check for script tags
+  if (/<script/i.test(input)) {
+    issues.push('Contains script tags');
+    riskLevel = 'high';
+  }
+  
+  // Check for event handlers
+  if (/on\w+\s*=/i.test(input)) {
+    issues.push('Contains event handlers');
+    riskLevel = 'high';
+  }
+  
+  // Check for javascript: URLs
+  if (/javascript:/i.test(input)) {
+    issues.push('Contains javascript: URLs');
+    riskLevel = 'high';
+  }
+  
+  // Check for common XSS vectors
+  if (/<iframe|<object|<embed|<link/i.test(input)) {
+    issues.push('Contains potentially dangerous HTML elements');
+    riskLevel = riskLevel === 'high' ? 'high' : 'medium';
+  }
+  
+  // Check for SQL injection patterns (basic)
+  if (/(\bUNION\b|\bSELECT\b|\bINSERT\b|\bDELETE\b|\bDROP\b)/i.test(input)) {
+    issues.push('Contains SQL-like keywords');
+    riskLevel = riskLevel === 'high' ? 'high' : 'medium';
+  }
+  
+  // Check for excessive length
+  if (input.length > 10000) {
+    issues.push('Input exceeds safe length limits');
+    riskLevel = riskLevel === 'high' ? 'high' : 'low';
+  }
+  
   return {
-    crypto: typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function',
-    webCrypto: typeof crypto !== 'undefined' && typeof crypto.subtle === 'object',
-    secureContext: isSecureContext(),
-    csp: isCSPSupported(),
-    localStorage: typeof Storage !== 'undefined',
-    sessionStorage: typeof sessionStorage !== 'undefined',
-    fetch: typeof fetch === 'function',
-    promise: typeof Promise === 'function',
-    intl: typeof Intl === 'object'
+    safe: issues.length === 0,
+    risk: riskLevel,
+    issues
   };
 };
 
 /**
- * Generate a secure session ID
- * @returns {string} Secure session ID
+ * Create a Content Security Policy string
+ * @returns {string} - CSP header value
  */
-export const generateSecureSessionId = () => {
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
-    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
-  }
-  
-  // Fallback for older browsers
-  return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 16);
-};
-
-/**
- * Validate that required environment variables are present
- * @returns {Object} Environment validation results
- */
-export const validateEnvironment = () => {
-  const required = [
-    'REACT_APP_FIREBASE_API_KEY',
-    'REACT_APP_FIREBASE_AUTH_DOMAIN',
-    'REACT_APP_FIREBASE_PROJECT_ID',
-    'REACT_APP_FIREBASE_STORAGE_BUCKET',
-    'REACT_APP_FIREBASE_MESSAGING_SENDER_ID',
-    'REACT_APP_FIREBASE_APP_ID'
+export const generateCSP = () => {
+  const directives = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://apis.google.com https://www.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https:",
+    "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://firebase.googleapis.com",
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'"
   ];
   
-  const missing = required.filter(key => !process.env[key]);
-  
-  return {
-    valid: missing.length === 0,
-    missing: missing,
-    hasDevTools: process.env.NODE_ENV === 'development'
-  };
+  return directives.join('; ');
 };
 
 /**
- * Check for potential security threats in the current environment
- * @returns {Array} List of potential security issues
+ * Secure logging function that removes sensitive information
+ * @param {string} level - Log level (info, warn, error)
+ * @param {string} message - Log message
+ * @param {Object} data - Additional data to log
  */
-export const performSecurityAudit = async () => {
-  const issues = [];
+export const secureLog = (level, message, data = {}) => {
+  // Remove sensitive information from logs
+  const sanitizedData = sanitizeObject(data, SECURITY_CONFIG.SENSITIVE_FIELDS);
   
-  // Check HTTPS
-  if (!isSecureContext() && window.location.hostname !== 'localhost') {
-    issues.push({
-      severity: 'high',
-      type: 'transport',
-      message: 'Application not running over HTTPS'
-    });
-  }
-  
-  // Check browser security features
-  const browserSecurity = checkBrowserSecurity();
-  if (!browserSecurity.crypto) {
-    issues.push({
-      severity: 'high',
-      type: 'browser',
-      message: 'Browser lacks cryptographic API support'
-    });
-  }
-  
-  if (!browserSecurity.secureContext) {
-    issues.push({
-      severity: 'medium',
-      type: 'browser',
-      message: 'Browser reports insecure context'
-    });
-  }
-  
-  // Check environment
-  const envValidation = validateEnvironment();
-  if (!envValidation.valid) {
-    issues.push({
-      severity: 'high',
-      type: 'configuration',
-      message: `Missing environment variables: ${envValidation.missing.join(', ')}`
-    });
-  }
-  
-  // Check for development tools in production
-  if (process.env.NODE_ENV === 'production' && envValidation.hasDevTools) {
-    issues.push({
-      severity: 'medium',
-      type: 'configuration',
-      message: 'Development tools detected in production build'
-    });
-  }
-  
-  // Check local storage for sensitive data
-  try {
-    const localStorage = window.localStorage;
-    const sensitiveKeys = ['password', 'token', 'secret', 'key'];
-    
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (sensitiveKeys.some(sensitive => key.toLowerCase().includes(sensitive))) {
-        issues.push({
-          severity: 'medium',
-          type: 'storage',
-          message: `Potentially sensitive data in localStorage: ${key}`
-        });
+  // Remove any values that look like tokens or passwords
+  const cleanedData = JSON.parse(JSON.stringify(sanitizedData, (key, value) => {
+    if (typeof value === 'string') {
+      // Mask potential tokens/passwords
+      if (value.length > 20 && /^[A-Za-z0-9+/=]+$/.test(value)) {
+        return '[MASKED_TOKEN]';
+      }
+      // Mask potential emails in non-email fields
+      if (key !== 'email' && /\S+@\S+\.\S+/.test(value)) {
+        return '[MASKED_EMAIL]';
       }
     }
-  } catch (error) {
-    // LocalStorage not available or accessible
-  }
+    return value;
+  }));
   
-  return issues;
+  console[level](`[SECURE] ${message}`, cleanedData);
 };
 
 /**
- * Initialize security monitoring
+ * Rate limiting helper for sensitive operations
  */
-export const initializeSecurityMonitoring = () => {
-  // Monitor for console access attempts
-  let devtools = { open: false, orientation: null };
+export class RateLimiter {
+  constructor(maxAttempts = 5, windowMs = 300000) { // 5 attempts per 5 minutes
+    this.attempts = new Map();
+    this.maxAttempts = maxAttempts;
+    this.windowMs = windowMs;
+  }
   
-  const threshold = 160;
-  setInterval(() => {
-    if (window.outerHeight - window.innerHeight > threshold || 
-        window.outerWidth - window.innerWidth > threshold) {
-      if (!devtools.open) {
-        devtools.open = true;
-        console.warn('Developer tools opened - Security monitoring active');
-        
-        // Log security event
-        if (typeof window.logSecurityEvent === 'function') {
-          window.logSecurityEvent('devtools_opened', { timestamp: new Date() });
-        }
-      }
-    } else {
-      devtools.open = false;
+  isAllowed(identifier) {
+    const now = Date.now();
+    const userAttempts = this.attempts.get(identifier) || [];
+    
+    // Remove old attempts outside the window
+    const recentAttempts = userAttempts.filter(time => now - time < this.windowMs);
+    
+    if (recentAttempts.length >= this.maxAttempts) {
+      return false;
     }
-  }, 500);
+    
+    // Record this attempt
+    recentAttempts.push(now);
+    this.attempts.set(identifier, recentAttempts);
+    
+    return true;
+  }
   
-  // Monitor for suspicious activity
-  let rapidClicks = 0;
-  document.addEventListener('click', () => {
-    rapidClicks++;
-    setTimeout(() => rapidClicks--, 1000);
-    
-    if (rapidClicks > 20) {
-      console.warn('Rapid clicking detected - Potential automated activity');
-      
-      if (typeof window.logSecurityEvent === 'function') {
-        window.logSecurityEvent('rapid_clicking', { 
-          clickCount: rapidClicks,
-          timestamp: new Date() 
-        });
-      }
-    }
-  });
-  
-  // Monitor for paste events that might contain malicious content
-  document.addEventListener('paste', (event) => {
-    const pastedText = (event.clipboardData || window.clipboardData).getData('text');
-    
-    // Check for suspicious patterns
-    const suspiciousPatterns = [
-      /<script/i,
-      /javascript:/i,
-      /vbscript:/i,
-      /data:text\/html/i,
-      /on\w+\s*=/i
-    ];
-    
-    if (suspiciousPatterns.some(pattern => pattern.test(pastedText))) {
-      console.warn('Suspicious content pasted - Security monitoring triggered');
-      
-      if (typeof window.logSecurityEvent === 'function') {
-        window.logSecurityEvent('suspicious_paste', { 
-          content: pastedText.substring(0, 100),
-          timestamp: new Date() 
-        });
-      }
-    }
-  });
-};
+  reset(identifier) {
+    this.attempts.delete(identifier);
+  }
+}
 
 export default {
-  isCSPSupported,
-  generateNonce,
-  isSecureContext,
-  checkSecurityHeaders,
-  isValidRedirectURL,
-  checkBrowserSecurity,
-  generateSecureSessionId,
-  validateEnvironment,
-  performSecurityAudit,
-  initializeSecurityMonitoring
+  secureSanitize,
+  sanitizeFormData,
+  sanitizeTransactionData,
+  sanitizeProfileData,
+  analyzeSecurityRisk,
+  generateCSP,
+  secureLog,
+  RateLimiter,
+  SECURITY_CONFIG
 };

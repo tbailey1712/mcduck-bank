@@ -20,6 +20,7 @@ import { db } from '../config/firebaseConfig';
 import { getUserData } from '../services/userService';
 import auditService, { AUDIT_EVENTS } from '../services/auditService';
 import { selectUser } from '../store/selectors';
+import { sanitizeProfileData, analyzeSecurityRisk, secureLog } from '../utils/security';
 
 const Profile = () => {
   const user = useSelector(selectUser);
@@ -133,6 +134,16 @@ const Profile = () => {
       setError('');
       setSuccess('');
 
+      // Sanitize and validate form data for security
+      const sanitizedData = sanitizeProfileData(formData);
+      
+      // Analyze potential security risks
+      const displayNameRisk = analyzeSecurityRisk(sanitizedData.displayName);
+      if (!displayNameRisk.safe) {
+        setError(`Invalid display name: ${displayNameRisk.issues.join(', ')}`);
+        return;
+      }
+
       // First, get the current user data to find the correct document ID
       let userData = await getUserData(user.uid, user);
       if (!userData && user.email) {
@@ -145,17 +156,20 @@ const Profile = () => {
       
       // Use the document ID from the userData (could be email or uid)
       const docId = userData.id || userData.user_id || user.email;
-      console.log('📱 Updating profile document:', docId);
+      secureLog('info', 'Updating profile document', { docId, userId: user.uid });
       
       const userRef = doc(db, 'accounts', docId);
       
-      // Update only the fields we're managing, add them if they don't exist
-      await updateDoc(userRef, {
-        displayName: formData.displayName.trim(),
-        mobile: formData.mobile.trim(),
-        preferences: formData.preferences,
+      // Prepare update data with sanitized values
+      const updateData = {
+        displayName: sanitizedData.displayName,
+        mobile: sanitizedData.mobile,
+        preferences: formData.preferences, // Preferences are controlled inputs, safe to use directly
         updatedAt: new Date()
-      });
+      };
+      
+      // Update only the fields we're managing, add them if they don't exist
+      await updateDoc(userRef, updateData);
 
       // Log profile update for audit
       try {
@@ -163,10 +177,10 @@ const Profile = () => {
           AUDIT_EVENTS.PROFILE_UPDATED,
           user,
           {
-            displayName: formData.displayName.trim(),
-            mobile: formData.mobile.trim(),
+            displayName: sanitizedData.displayName,
+            mobile: sanitizedData.mobile,
             preferences: formData.preferences,
-            mobile_changed: userData.mobile !== formData.mobile.trim(),
+            mobile_changed: userData.mobile !== sanitizedData.mobile,
             preferences_changed: JSON.stringify(userData.preferences) !== JSON.stringify(formData.preferences)
           }
         );

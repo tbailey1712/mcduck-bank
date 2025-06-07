@@ -1,7 +1,9 @@
 /**
  * Validation and sanitization utilities
- * Provides reusable validation functions and input sanitization
+ * Provides reusable validation functions and input sanitization with XSS protection
  */
+
+import DOMPurify from 'dompurify';
 
 // Regular expressions for validation
 const VALIDATION_PATTERNS = {
@@ -28,20 +30,92 @@ const VALIDATION_MESSAGES = {
 };
 
 /**
- * Sanitize input to prevent XSS attacks
+ * Sanitize input to prevent XSS attacks using DOMPurify
  * @param {string} input - The input to sanitize
+ * @param {Object} options - Sanitization options
  * @returns {string} - Sanitized input
  */
-export const sanitizeInput = (input) => {
+export const sanitizeInput = (input, options = {}) => {
   if (typeof input !== 'string') return '';
   
-  return input
-    .trim()
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;')
-    .replace(/\//g, '&#x2F;');
+  const {
+    allowHtml = false,
+    stripTags = true,
+    preserveWhitespace = false
+  } = options;
+  
+  let sanitized = input;
+  
+  // Trim whitespace unless preserving
+  if (!preserveWhitespace) {
+    sanitized = sanitized.trim();
+  }
+  
+  if (allowHtml) {
+    // Allow safe HTML but remove dangerous elements/attributes
+    sanitized = DOMPurify.sanitize(sanitized, {
+      ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'p', 'br'],
+      ALLOWED_ATTR: [],
+      KEEP_CONTENT: true
+    });
+  } else if (stripTags) {
+    // Strip all HTML tags and get text content only
+    sanitized = DOMPurify.sanitize(sanitized, { 
+      ALLOWED_TAGS: [], 
+      KEEP_CONTENT: true 
+    });
+  } else {
+    // HTML encode dangerous characters
+    sanitized = DOMPurify.sanitize(sanitized, {
+      ALLOWED_TAGS: [],
+      ALLOWED_ATTR: [],
+      KEEP_CONTENT: true,
+      USE_PROFILES: { html: true }
+    });
+  }
+  
+  return sanitized;
+};
+
+/**
+ * Sanitize HTML content for safe rendering
+ * @param {string} html - The HTML content to sanitize
+ * @returns {string} - Safe HTML content
+ */
+export const sanitizeHtml = (html) => {
+  if (typeof html !== 'string') return '';
+  
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'p', 'br', 'ul', 'ol', 'li'],
+    ALLOWED_ATTR: [],
+    KEEP_CONTENT: true
+  });
+};
+
+/**
+ * Deep sanitize an object's string properties
+ * @param {Object} obj - Object to sanitize
+ * @param {Array} excludeKeys - Keys to exclude from sanitization
+ * @returns {Object} - Sanitized object
+ */
+export const sanitizeObject = (obj, excludeKeys = []) => {
+  if (!obj || typeof obj !== 'object') return obj;
+  
+  const sanitized = Array.isArray(obj) ? [] : {};
+  
+  for (const [key, value] of Object.entries(obj)) {
+    if (excludeKeys.includes(key)) {
+      sanitized[key] = value;
+    } else if (typeof value === 'string') {
+      sanitized[key] = sanitizeInput(value);
+    } else if (typeof value === 'object' && value !== null) {
+      sanitized[key] = sanitizeObject(value, excludeKeys);
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  
+  return sanitized;
 };
 
 /**
@@ -241,6 +315,8 @@ export const parseAmount = (amount) => {
 
 export default {
   sanitizeInput,
+  sanitizeHtml,
+  sanitizeObject,
   sanitizeNumericInput,
   validateRequired,
   validateEmail,
