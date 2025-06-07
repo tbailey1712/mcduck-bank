@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { useSelector } from 'react-redux';
 import { Box, Container, Typography, CircularProgress } from '@mui/material';
-import { UserProfileCard, AccountSummaryCard, PaginatedTransactionTable } from '../components';
+import { UserProfileCard, PaginatedTransactionTable } from '../components';
+import AccountSummaryCards from '../components/AccountSummaryCards';
 import { getUserData, subscribeToUserData, subscribeToTransactions } from '../services/userService';
-import { processTransactions } from '../services/transactionService';
+import { processTransactionSummary } from '../services/apiService';
 import { useParams } from 'react-router-dom';
+import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 
 const SimplifiedAccountOverview = () => {
-  const { user } = useSelector((state) => state.auth);
+  const { user } = useUnifiedAuth();
   const { user_id: targetUserId } = useParams();
   const [userData, setUserData] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -65,7 +66,7 @@ const SimplifiedAccountOverview = () => {
     const unsubscribeTransactions = subscribeToTransactions(targetUserId, (updatedTransactions) => {
       if (updatedTransactions) {
         setTransactions(updatedTransactions);
-        setTransactionSummary(processTransactions(updatedTransactions));
+        setTransactionSummary(processTransactionSummary(updatedTransactions));
       }
     }, user);
 
@@ -105,10 +106,15 @@ const SimplifiedAccountOverview = () => {
           isLoading={loading}
         />
 
-        {/* Account Summary Card - Full width below user info */}
-        <AccountSummaryCard 
-          transactionSummary={transactionSummary}
-          isLoading={loading}
+        {/* Account Summary Cards - Full width below user info */}
+        <AccountSummaryCards 
+          accountData={{
+            balance: transactionSummary?.balance || 0,
+            deposits: transactionSummary?.deposits || 0,
+            withdrawals: transactionSummary?.withdrawals || 0,
+            interests: transactionSummary?.interests || 0,
+            pendingWithdrawal: transactionSummary?.pendingAmount || 0
+          }}
         />
 
         {/* Transaction History - Full width */}
