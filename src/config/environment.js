@@ -58,6 +58,14 @@ export const config = {
     name: 'McDuck Bank',
     version: process.env.REACT_APP_VERSION || '1.0.0',
     buildDate: process.env.REACT_APP_BUILD_DATE || new Date().toISOString(),
+  },
+  
+  // UI settings
+  ui: {
+    navbar: {
+      showBuildNumber: getBooleanEnv('REACT_APP_SHOW_BUILD_NUMBER', true),
+      showNavigation: getBooleanEnv('REACT_APP_SHOW_NAVBAR_NAVIGATION', false),
+    }
   }
 };
 

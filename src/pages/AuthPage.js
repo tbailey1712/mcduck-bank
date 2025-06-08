@@ -1,9 +1,8 @@
-import { GoogleAuthProvider, signInWithPopup, getAuth } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, getAuth } from 'firebase/auth';
 import { Box, Button, Typography, Container, Paper, Alert, Chip } from '@mui/material';
-import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
-import { setError, clearError } from '../store/slices/authSlice';
+import { useEffect, useState } from 'react';
+import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 // import { usePWA } from '../hooks/usePWA';
 // Use direct import path to avoid chunk splitting issues
 import GetAppIcon from '@mui/icons-material/GetApp';
@@ -11,8 +10,8 @@ import GetAppIcon from '@mui/icons-material/GetApp';
 // import BuildInfo from '../components/BuildInfo';
 
 const AuthPage = () => {
-  const { isAuthenticated, isAdmin, user, loading, error } = useSelector((state) => state.auth);
-  const dispatch = useDispatch();
+  const { isAuthenticated, isAdmin, user, loading, error } = useUnifiedAuth();
+  const [authError, setAuthError] = useState('');
   const navigate = useNavigate();
   // Temporarily disable PWA functionality to test chunk loading
   // const { isInstallable, isInstalled, installApp } = usePWA();
@@ -37,12 +36,12 @@ const AuthPage = () => {
   }, [isAuthenticated, isAdmin, user, loading, navigate]);
 
   const handleGoogleSignIn = async () => {
+    const provider = new GoogleAuthProvider();
+    
     try {
-      dispatch(clearError());
+      setAuthError('');
       console.log('🔐 Starting Google sign-in process...');
       console.log('🌐 Current origin:', window.location.origin);
-      
-      const provider = new GoogleAuthProvider();
       
       // Only set redirect_uri if not the same as current origin
       const customParams = { prompt: 'select_account' };
@@ -52,7 +51,7 @@ const AuthPage = () => {
       
       const result = await signInWithPopup(getAuth(), provider);
       console.log('✅ Sign-in successful:', result.user.email);
-      // Auth state will be updated automatically via the listener in authSlice
+      // Auth state will be updated automatically via the unified auth service
       // If user is not authorized, they will be signed out and an error will be shown
     } catch (err) {
       console.error('❌ Login error details:', {
@@ -63,18 +62,24 @@ const AuthPage = () => {
       });
       
       if (err.code === 'auth/popup-closed-by-user') {
-        dispatch(setError({ message: 'Sign-in was cancelled' }));
+        setAuthError('Sign-in was cancelled');
+      } else if (err.code === 'auth/popup-blocked' || err.message.includes('popup')) {
+        // Fallback to redirect if popup is blocked
+        console.log('🔄 Popup blocked, trying redirect method...');
+        try {
+          await signInWithRedirect(getAuth(), provider);
+        } catch (redirectErr) {
+          console.error('❌ Redirect auth also failed:', redirectErr);
+          setAuthError('Authentication failed. Please try again or contact support.');
+        }
       } else if (err.code === 'auth/invalid-api-key') {
-        dispatch(setError({ message: 'Firebase API key is invalid' }));
+        setAuthError('Firebase API key is invalid');
       } else if (err.code === 'auth/network-request-failed') {
-        dispatch(setError({ message: 'Network error. Please check your connection.' }));
+        setAuthError('Network error. Please check your connection.');
       } else if (err.code === 'auth/too-many-requests') {
-        dispatch(setError({ message: 'Too many requests. Please try again later.' }));
+        setAuthError('Too many requests. Please try again later.');
       } else {
-        dispatch(setError({ 
-          message: `Authentication failed: ${err.code || 'Unknown error'}`, 
-          error: err.message 
-        }));
+        setAuthError(`Authentication failed: ${err.code || 'Unknown error'}`);
       }
     }
   };
@@ -92,9 +97,9 @@ const AuthPage = () => {
             Sign in with your Google account to continue
           </Typography>
           
-          {error && (
+          {(error || authError) && (
             <Alert severity="error" sx={{ mt: 2, mb: 2 }}>
-              {error.message || 'Authentication failed'}
+              {authError || error?.message || 'Authentication failed'}
             </Alert>
           )}
           

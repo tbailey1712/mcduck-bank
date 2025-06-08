@@ -1,6 +1,6 @@
 import { useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useAuthContext } from '../contexts/AuthContext';
+import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 import useUserData from './useUserData';
 import useTransactions from './useTransactions';
 import useTransactionSummary from './useTransactionSummary';
@@ -10,7 +10,7 @@ import useTransactionSummary from './useTransactionSummary';
  * This is now a lightweight composition of focused hooks
  */
 const useAccountData = () => {
-  const { user, isAdmin, canAccessResource, isLoading: authLoading } = useAuthContext();
+  const { user, isAdmin, canAccessResource, loading: authLoading } = useUnifiedAuth();
   const navigate = useNavigate();
   const { user_id: paramUserId } = useParams();
   

@@ -1,25 +1,42 @@
-import { BottomNavigation, BottomNavigationAction, Paper, Menu, MenuItem, Avatar } from '@mui/material';
+import { BottomNavigation, BottomNavigationAction, Paper, Menu, MenuItem, Avatar, Badge } from '@mui/material';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import RequestPageIcon from '@mui/icons-material/RequestPage';
 import BarChartIcon from '@mui/icons-material/BarChart';
-import InfoIcon from '@mui/icons-material/Info';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
+import withdrawalTaskService from '../services/withdrawalTaskService';
 
 export default function BottomNav() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isAdmin, signOut, user } = useUnifiedAuth();
   const [profileAnchor, setProfileAnchor] = useState(null);
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+
+  // Subscribe to pending withdrawal requests count for admins
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+
+    const unsubscribe = withdrawalTaskService.subscribeToAllWithdrawalRequests(
+      (requests) => {
+        const pendingCount = requests.filter(req => req.status === 'pending').length;
+        setPendingRequestsCount(pendingCount);
+      },
+      'pending'
+    );
+
+    return () => unsubscribe();
+  }, [isAdmin, user]);
 
   // Determine current tab based on location
   const getCurrentValue = () => {
     if (location.pathname.includes('/account')) return 0;
-    if (location.pathname.includes('/dashboard')) return 1;
-    if (location.pathname.includes('/about')) return 2;
-    if (location.pathname.includes('/admin') && !location.pathname.includes('/logs')) return 3;
+    if (location.pathname.includes('/withdrawal')) return 1;
+    if (location.pathname.includes('/admin') && !location.pathname.includes('/requests') && !location.pathname.includes('/logs')) return 2;
+    if (location.pathname.includes('/admin/requests')) return 3;
     if (location.pathname.includes('/logs')) return 4;
     return 0; // default to account
   };
@@ -30,13 +47,13 @@ export default function BottomNav() {
         navigate('/account');
         break;
       case 1:
-        navigate('/dashboard');
+        navigate('/withdrawal');
         break;
       case 2:
-        navigate('/about');
+        if (isAdmin) navigate('/admin');
         break;
       case 3:
-        if (isAdmin) navigate('/admin');
+        if (isAdmin) navigate('/admin/requests');
         break;
       case 4:
         if (isAdmin) navigate('/admin/logs');
@@ -52,6 +69,11 @@ export default function BottomNav() {
 
   const handleProfile = () => {
     navigate('/profile');
+    handleProfileClose();
+  };
+
+  const handleAbout = () => {
+    navigate('/about');
     handleProfileClose();
   };
 
@@ -71,8 +93,17 @@ export default function BottomNav() {
         >
           <BottomNavigationAction label="History" icon={<ReceiptLongIcon />} />
           <BottomNavigationAction label="Withdraw" icon={<AttachMoneyIcon />} />
-          <BottomNavigationAction label="About" icon={<InfoIcon />} />
           {isAdmin && <BottomNavigationAction label="Admin" icon={<AdminPanelSettingsIcon />} />}
+          {isAdmin && (
+            <BottomNavigationAction 
+              label="Requests" 
+              icon={
+                <Badge badgeContent={pendingRequestsCount} color="error">
+                  <RequestPageIcon />
+                </Badge>
+              } 
+            />
+          )}
           {isAdmin && <BottomNavigationAction label="Logs" icon={<BarChartIcon />} />}
           
           <Avatar 
@@ -101,6 +132,7 @@ export default function BottomNav() {
         transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
         <MenuItem onClick={handleProfile}>My Profile</MenuItem>
+        <MenuItem onClick={handleAbout}>About</MenuItem>
         <MenuItem onClick={handleLogout}>Logout</MenuItem>
       </Menu>
     </>

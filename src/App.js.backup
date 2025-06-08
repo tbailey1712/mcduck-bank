@@ -1,0 +1,19 @@
+import { ThemeProvider } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+import theme from './theme';
+import BottomNav from './BottomNav';
+import Dashboard from './Dashboard';
+
+function App() {
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <div style={{ paddingBottom: '80px' }}>
+        <Dashboard />
+      </div>
+      <BottomNav />
+    </ThemeProvider>
+  );
+}
+
+export default App;

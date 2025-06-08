@@ -46,15 +46,15 @@ service cloud.firestore {
       // Users can read their own transactions, admins can read all
       allow read: if isOwner(resource) || isAdmin();
       
-      // Users can create transactions for themselves with valid data
+      // Users can create transactions for themselves, admins can create for any user
       allow create: if isAuthenticated() && 
-                       request.resource.data.user_id == request.auth.uid;
+                       (request.resource.data.user_id == request.auth.uid || isAdmin());
       
       // Only admins can update transactions (for approval/rejection)
       allow update: if isAdmin();
       
-      // Prevent transaction deletion
-      allow delete: if false;
+      // Only admins can delete transactions
+      allow delete: if isAdmin();
     }
     
     // Admin logs collection (admin-only access)
@@ -73,6 +73,22 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow create: if isAuthenticated(); // Allow any authenticated user to create audit logs
       allow update, delete: if false;
+    }
+    
+    // Withdrawal tasks collection
+    match /withdrawal_tasks/{taskId} {
+      // Users can read their own withdrawal requests, admins can read all
+      allow read: if isOwner(resource) || isAdmin();
+      
+      // Users can create withdrawal requests for themselves, admins can create for any user
+      allow create: if isAuthenticated() && 
+                       (request.resource.data.user_id == request.auth.uid || isAdmin());
+      
+      // Users can update their own pending requests (cancel), admins can update any
+      allow update: if (isOwner(resource) && resource.data.status == 'pending') || isAdmin();
+      
+      // Only admins can delete withdrawal requests
+      allow delete: if isAdmin();
     }
     
     // System configuration (admin-only access)

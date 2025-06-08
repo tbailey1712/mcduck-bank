@@ -13,6 +13,8 @@ import AccountOverview from './pages/AccountOverview';
 import SimplifiedAccountOverview from './pages/SimplifiedAccountOverview';
 import AdminPanel from './pages/AdminPanel';
 import AdminLogs from './pages/AdminLogs';
+import WithdrawalPage from './pages/WithdrawalPage';
+import AdminRequestsPage from './pages/AdminRequestsPage';
 import Profile from './pages/Profile';
 import About from './pages/About';
 import BottomNav from './components/BottomNav';
@@ -58,6 +60,9 @@ function App() {
               <Route path="/dashboard" element={
                 isAuthenticated ? <Dashboard /> : <Navigate to="/" replace />
               } />
+              <Route path="/withdrawal" element={
+                isAuthenticated ? <WithdrawalPage /> : <Navigate to="/" replace />
+              } />
               <Route path="/account" element={
                 isAuthenticated ? <AccountOverview /> : <Navigate to="/" replace />
               } />
@@ -66,6 +71,9 @@ function App() {
               } />
               <Route path="/admin" element={
                 isAuthenticated && isAdmin ? <AdminPanel /> : <Navigate to="/" replace />
+              } />
+              <Route path="/admin/requests" element={
+                isAuthenticated && isAdmin ? <AdminRequestsPage /> : <Navigate to="/" replace />
               } />
               <Route path="/admin/logs" element={
                 isAuthenticated && isAdmin ? <AdminLogs /> : <Navigate to="/" replace />

@@ -24,11 +24,10 @@ import {
   Security as SecurityIcon,
   CloudDone as CloudIcon
 } from '@mui/icons-material';
-import { useSelector } from 'react-redux';
-import { selectUser } from '../store/selectors';
+import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 
 const About = () => {
-  const user = useSelector(selectUser);
+  const { user } = useUnifiedAuth();
   const [notificationStatus, setNotificationStatus] = useState('checking');
   const [isInstalled, setIsInstalled] = useState(false);
   const [storageUsage, setStorageUsage] = useState(null);
