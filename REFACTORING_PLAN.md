@@ -10,7 +10,7 @@ This refactoring plan addresses critical security vulnerabilities, performance o
 **Files**: `firestore.rules`
 - **Current Issue**: Hardcoded admin email with unrestricted access
 - **Action Items**:
-  - Remove hardcoded `tony.bailey@gmail.com` admin check
+  - Remove hardcoded admin email checks
   - Implement role-based access control using custom claims
   - Add granular permissions for customer vs admin data access
   - Create specific rules for transaction operations

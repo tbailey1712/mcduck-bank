@@ -8,7 +8,7 @@
 
 const admin = require('firebase-admin');
 
-const YOUR_EMAIL = 'tony.bailey@gmail.com';
+const YOUR_EMAIL = 'your.email@example.com';
 
 async function updateProfilePhoto() {
   try {
