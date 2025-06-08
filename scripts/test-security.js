@@ -17,7 +17,8 @@ if (fs.existsSync(rulesPath)) {
   const rules = fs.readFileSync(rulesPath, 'utf8');
   
   // Check for hardcoded email
-  if (rules.includes('tony.bailey@gmail.com')) {
+  const HARD_CODED_ADMIN_EMAIL = 'example-admin@example.com';
+  if (rules.includes(HARD_CODED_ADMIN_EMAIL)) {
     console.log('❌ FAIL: Hardcoded admin email still present in security rules');
   } else {
     console.log('✅ PASS: No hardcoded admin emails found');

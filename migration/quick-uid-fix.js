@@ -10,7 +10,7 @@
 const admin = require('firebase-admin');
 
 // Values from your console debug output
-const YOUR_EMAIL = 'tony.bailey@gmail.com';
+const YOUR_EMAIL = 'your.email@example.com';
 const OLD_UID = 'sSUJ8VntsQfPu9h4XYEcsxl6ZRl2'; // From Redux user.uid
 const NEW_UID = 'TJEZ0fCPMESFez0HNCl0dEu8UlA3'; // From Firebase Auth UID
 
