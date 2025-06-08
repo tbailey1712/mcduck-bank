@@ -11,7 +11,7 @@
 
 **A modern, minimalist banking application built for the cloud-native era**
 
-[🚀 Live Demo](https://mcduck-bank-2025.firebaseapp.com) • [📖 Documentation](./docs) • [🐛 Report Bug](../../issues) • [💡 Request Feature](../../issues)
+[📖 Documentation](./docs) • [🐛 Report Bug](../../issues) • [💡 Request Feature](../../issues)
 
 </div>
 
