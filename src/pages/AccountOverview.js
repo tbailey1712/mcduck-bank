@@ -1,10 +1,10 @@
 import React, { useCallback, useMemo } from 'react';
 import { Container, Typography, Alert, CircularProgress, Box, Button } from '@mui/material';
-import { UserProfileCard, AccountSummaryCard, PaginatedTransactionTable } from '../components';
-import useAccountDataLegacy from '../hooks/useAccountData.legacy';
-import { useSelector } from 'react-redux';
-import { selectUser, selectIsAdmin } from '../store/selectors';
-import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { UserProfileCard, PaginatedTransactionTable } from '../components';
+import AccountSummaryCards from '../components/AccountSummaryCards';
+import useAccountData from '../hooks/useAccountData';
+import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
+import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 import auditService, { AUDIT_EVENTS } from '../services/auditService';
 
@@ -17,15 +17,22 @@ const AccountOverview = React.memo(() => {
     error,
     currentUserId,
     refreshData
-  } = useAccountDataLegacy();
+  } = useAccountData();
   
-  const authUser = useSelector(selectUser);
-  const isAdmin = useSelector(selectIsAdmin);
+  const { user: authUser, isAdmin, updateActivity } = useUnifiedAuth();
 
   // Memoized transaction handlers for admin users
   const handleTransactionEdit = useCallback(async (transactionData) => {
     try {
       const transactionRef = doc(db, 'transactions', transactionData.id);
+      
+      // Get original transaction data for comparison
+      const originalDoc = await getDoc(transactionRef);
+      if (!originalDoc.exists()) {
+        throw new Error('Transaction not found');
+      }
+      
+      const originalData = originalDoc.data();
       const updateData = {
         amount: transactionData.amount,
         transaction_type: transactionData.transaction_type,
@@ -38,20 +45,81 @@ const AccountOverview = React.memo(() => {
         updateData.timestamp = transactionData.timestamp;
       }
       
+      // Compare changes and build change log
+      const changes = [];
+      const fieldsToCheck = ['amount', 'transaction_type', 'description', 'timestamp'];
+      
+      fieldsToCheck.forEach(field => {
+        const oldValue = originalData[field];
+        const newValue = updateData[field] || transactionData[field];
+        
+        // Handle special cases for comparison
+        if (field === 'amount') {
+          const oldAmount = parseFloat(oldValue) || 0;
+          const newAmount = parseFloat(newValue) || 0;
+          if (oldAmount !== newAmount) {
+            changes.push({
+              field: 'amount',
+              old_value: oldAmount,
+              new_value: newAmount,
+              formatted_old: `$${oldAmount.toFixed(2)}`,
+              formatted_new: `$${newAmount.toFixed(2)}`
+            });
+          }
+        } else if (field === 'timestamp') {
+          // Handle timestamp comparison
+          const oldTimestamp = originalData.timestamp?.toDate?.() || originalData.timestamp;
+          const newTimestamp = transactionData.timestamp?.toDate?.() || transactionData.timestamp;
+          if (oldTimestamp?.getTime() !== newTimestamp?.getTime()) {
+            changes.push({
+              field: 'timestamp',
+              old_value: oldTimestamp,
+              new_value: newTimestamp,
+              formatted_old: oldTimestamp ? new Date(oldTimestamp).toISOString() : 'N/A',
+              formatted_new: newTimestamp ? new Date(newTimestamp).toISOString() : 'N/A'
+            });
+          }
+        } else {
+          // Handle string fields
+          if (String(oldValue || '') !== String(newValue || '')) {
+            changes.push({
+              field: field,
+              old_value: oldValue || '',
+              new_value: newValue || '',
+              formatted_old: String(oldValue || ''),
+              formatted_new: String(newValue || '')
+            });
+          }
+        }
+      });
+      
       await updateDoc(transactionRef, updateData);
 
-      // Log transaction edit for audit
+      // Log transaction edit for audit with detailed changes
       try {
         await auditService.logTransactionEvent(
           AUDIT_EVENTS.TRANSACTION_EDITED,
           authUser,
           {
-            id: transactionData.id,
-            transaction_type: transactionData.transaction_type,
-            amount: transactionData.amount,
-            description: transactionData.description,
-            previous_values: 'N/A', // Could store original values if needed
-            edited_from: 'account_overview'
+            transaction_id: transactionData.id,
+            account_edited: originalData.user_id || originalData.userId || 'unknown',
+            account_email: userData?.email || 'unknown',
+            account_name: userData?.displayName || userData?.name || 'unknown',
+            changes_made: changes,
+            total_changes: changes.length,
+            edited_from: 'account_overview',
+            original_values: {
+              amount: originalData.amount,
+              transaction_type: originalData.transaction_type,
+              description: originalData.description || originalData.comment,
+              timestamp: originalData.timestamp
+            },
+            new_values: {
+              amount: transactionData.amount,
+              transaction_type: transactionData.transaction_type,
+              description: transactionData.description,
+              timestamp: transactionData.timestamp
+            }
           }
         );
       } catch (auditError) {
@@ -63,22 +131,37 @@ const AccountOverview = React.memo(() => {
       console.error('Error updating transaction:', error);
       throw error;
     }
-  }, [refreshData]);
+  }, [authUser, userData, refreshData]);
 
   const handleTransactionDelete = useCallback(async (transactionId) => {
     try {
       const transactionRef = doc(db, 'transactions', transactionId);
+      
+      // Get transaction data before deletion for audit log
+      const transactionDoc = await getDoc(transactionRef);
+      const transactionData = transactionDoc.exists() ? transactionDoc.data() : null;
+      
       await deleteDoc(transactionRef);
 
-      // Log transaction deletion for audit
+      // Log transaction deletion for audit with detailed information
       try {
         await auditService.logTransactionEvent(
           AUDIT_EVENTS.TRANSACTION_DELETED,
           authUser,
           {
-            id: transactionId,
+            transaction_id: transactionId,
+            account_affected: transactionData?.user_id || transactionData?.userId || 'unknown',
+            account_email: userData?.email || 'unknown', 
+            account_name: userData?.displayName || userData?.name || 'unknown',
             deleted_from: 'account_overview',
-            deleted_at: new Date()
+            deleted_at: new Date(),
+            deleted_transaction: transactionData ? {
+              amount: transactionData.amount,
+              transaction_type: transactionData.transaction_type,
+              description: transactionData.description || transactionData.comment,
+              timestamp: transactionData.timestamp,
+              original_user_id: transactionData.user_id || transactionData.userId
+            } : null
           }
         );
       } catch (auditError) {
@@ -90,7 +173,7 @@ const AccountOverview = React.memo(() => {
       console.error('Error deleting transaction:', error);
       throw error;
     }
-  }, [refreshData]);
+  }, [authUser, userData, refreshData]);
 
   // Memoized transaction handlers for performance
   const transactionHandlers = useMemo(() => {
@@ -150,10 +233,15 @@ const AccountOverview = React.memo(() => {
           isLoading={loading}
         />
 
-        {/* Account Summary Card */}
-        <AccountSummaryCard 
-          transactionSummary={transactionSummary}
-          isLoading={loading}
+        {/* Account Summary Cards */}
+        <AccountSummaryCards 
+          accountData={{
+            balance: transactionSummary?.balance || 0,
+            deposits: transactionSummary?.deposits || 0,
+            withdrawals: transactionSummary?.withdrawals || 0,
+            interests: transactionSummary?.interests || 0,
+            pendingWithdrawal: transactionSummary?.pendingAmount || 0
+          }}
         />
 
 

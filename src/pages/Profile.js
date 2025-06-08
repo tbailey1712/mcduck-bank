@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useSelector } from 'react-redux';
 import { 
   Container, 
   Paper, 
@@ -19,11 +18,11 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 import { getUserData } from '../services/userService';
 import auditService, { AUDIT_EVENTS } from '../services/auditService';
-import { selectUser } from '../store/selectors';
+import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 import { sanitizeProfileData, analyzeSecurityRisk, secureLog } from '../utils/security';
 
 const Profile = () => {
-  const user = useSelector(selectUser);
+  const { user, updateActivity } = useUnifiedAuth();
   
   // Form state
   const [formData, setFormData] = useState({
@@ -170,6 +169,9 @@ const Profile = () => {
       
       // Update only the fields we're managing, add them if they don't exist
       await updateDoc(userRef, updateData);
+
+      // Update user activity
+      updateActivity();
 
       // Log profile update for audit
       try {

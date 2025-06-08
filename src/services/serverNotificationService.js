@@ -498,6 +498,54 @@ class ServerNotificationService {
       throw error;
     }
   }
+
+  /**
+   * Send withdrawal request approved notification
+   * @param {string} userId - User ID
+   * @param {number} amount - Withdrawal amount
+   * @param {string} description - Withdrawal description
+   */
+  async sendWithdrawalApprovedNotification(userId, amount, description = '') {
+    const notification = {
+      type: 'withdrawal_approved',
+      title: '✅ Withdrawal Request Approved',
+      body: `Your withdrawal request for $${amount.toFixed(2)} has been approved.`,
+      data: {
+        type: 'withdrawal_approved',
+        amount: amount,
+        description: description,
+        timestamp: new Date().toISOString(),
+        url: '/withdrawal'
+      }
+    };
+
+    return this.sendNotificationToUser(userId, notification);
+  }
+
+  /**
+   * Send withdrawal request rejected notification
+   * @param {string} userId - User ID
+   * @param {number} amount - Withdrawal amount
+   * @param {string} description - Withdrawal description
+   * @param {string} reason - Rejection reason
+   */
+  async sendWithdrawalRejectedNotification(userId, amount, description = '', reason = '') {
+    const notification = {
+      type: 'withdrawal_rejected',
+      title: '❌ Withdrawal Request Rejected',
+      body: `Your withdrawal request for $${amount.toFixed(2)} has been rejected. ${reason ? 'Reason: ' + reason : ''}`,
+      data: {
+        type: 'withdrawal_rejected',
+        amount: amount,
+        description: description,
+        reason: reason,
+        timestamp: new Date().toISOString(),
+        url: '/withdrawal'
+      }
+    };
+
+    return this.sendNotificationToUser(userId, notification);
+  }
 }
 
 // Create singleton instance

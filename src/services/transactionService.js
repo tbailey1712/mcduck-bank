@@ -87,9 +87,13 @@ export const fetchAndProcessTransactions = async (user_id, authUser = null) => {
   try {
     const transactions = await getTransactions(user_id, authUser);
     console.log('Fetched transactions:', transactions.length);
+    
+    // Import here to avoid circular dependency
+    const { processTransactionSummary } = require('./apiService');
+    
     return {
       transactions,
-      summary: processTransactions(transactions)
+      summary: processTransactionSummary(transactions)
     };
   } catch (error) {
     console.error('Error fetching and processing transactions:', error);

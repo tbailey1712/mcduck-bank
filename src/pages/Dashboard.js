@@ -7,6 +7,7 @@ import { addTransaction, setTransactions } from '../store/slices/transactionsSli
 import WithdrawalForm from '../components/WithdrawalForm';
 import { setError } from '../store/slices/authSlice';
 import auditService, { AUDIT_EVENTS } from '../services/auditService';
+import withdrawalDepositService from '../services/withdrawalDepositService';
 
 const Dashboard = () => {
   const dispatch = useDispatch();
@@ -87,6 +88,19 @@ const Dashboard = () => {
         );
       } catch (auditError) {
         console.warn('Failed to log withdrawal request audit event:', auditError);
+      }
+      
+      // Create corresponding house deposit
+      try {
+        await withdrawalDepositService.createHouseDeposit(
+          transaction,
+          docRef.id,
+          auth.currentUser
+        );
+        console.log('✅ House deposit created for withdrawal:', docRef.id);
+      } catch (houseDepositError) {
+        console.warn('Failed to create house deposit for withdrawal:', houseDepositError);
+        // Don't fail the withdrawal if house deposit fails
       }
       
       // Update user balance optimistically

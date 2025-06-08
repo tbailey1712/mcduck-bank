@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
+import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 import {
   Container,
   Paper,
@@ -46,7 +46,7 @@ import { format, subDays, subHours } from 'date-fns';
 import auditService, { AUDIT_EVENTS } from '../services/auditService';
 
 const AdminLogs = () => {
-  const { user, isAdmin } = useSelector((state) => state.auth);
+  const { user, isAdmin, updateActivity } = useUnifiedAuth();
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -171,6 +171,275 @@ const AdminLogs = () => {
   // Format event type for display
   const formatEventType = (eventType) => {
     return eventType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
+  // Render event details in human-readable format
+  const renderEventDetails = (log) => {
+    const details = log.details || {};
+    const eventType = log.event_type;
+
+    // Transaction Edit Details
+    if (eventType === AUDIT_EVENTS.TRANSACTION_EDITED && details.changes_made) {
+      return (
+        <Box>
+          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+            Transaction Edit Details
+          </Typography>
+          
+          {/* Account Information */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary">Account Affected:</Typography>
+            <Typography variant="body1">
+              {details.account_name || 'Unknown'} ({details.account_email || details.account_edited || 'Unknown'})
+            </Typography>
+          </Box>
+
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary">Edited From:</Typography>
+            <Typography variant="body1" sx={{ textTransform: 'capitalize' }}>
+              {details.edited_from?.replace('_', ' ') || 'Unknown'}
+            </Typography>
+          </Box>
+
+          {/* Changes Made */}
+          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', mt: 2 }}>
+            Changes Made ({details.total_changes || 0})
+          </Typography>
+          
+          {details.changes_made?.map((change, index) => (
+            <Box key={index} sx={{ mb: 2, p: 1.5, bgcolor: 'grey.100', color: 'text.primary', borderRadius: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 'bold', textTransform: 'capitalize' }}>
+                {change.field}:
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                <Chip 
+                  label={change.formatted_old || change.old_value} 
+                  size="small" 
+                  color="error" 
+                  variant="outlined"
+                />
+                <Typography variant="body2">→</Typography>
+                <Chip 
+                  label={change.formatted_new || change.new_value} 
+                  size="small" 
+                  color="success" 
+                  variant="outlined"
+                />
+              </Box>
+            </Box>
+          ))}
+
+          {/* Transaction ID */}
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body2" color="text.secondary">Transaction ID:</Typography>
+            <Typography variant="body2" fontFamily="monospace">
+              {details.transaction_id || details.id || 'Unknown'}
+            </Typography>
+          </Box>
+        </Box>
+      );
+    }
+
+    // Transaction Deletion Details
+    if (eventType === AUDIT_EVENTS.TRANSACTION_DELETED && details.deleted_transaction) {
+      return (
+        <Box>
+          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+            Transaction Deletion Details
+          </Typography>
+          
+          {/* Account Information */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary">Account Affected:</Typography>
+            <Typography variant="body1">
+              {details.account_name || 'Unknown'} ({details.account_email || details.account_affected || 'Unknown'})
+            </Typography>
+          </Box>
+
+          {/* Deleted Transaction Details */}
+          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', mt: 2 }}>
+            Deleted Transaction
+          </Typography>
+          
+          <Box sx={{ p: 1.5, bgcolor: 'error.50', color: 'text.primary', borderRadius: 1, border: '1px solid', borderColor: 'error.200' }}>
+            <Grid container spacing={1}>
+              <Grid item xs={6}>
+                <Typography variant="body2" color="text.secondary">Amount:</Typography>
+                <Typography variant="body1">${details.deleted_transaction.amount?.toFixed(2)}</Typography>
+              </Grid>
+              <Grid item xs={6}>
+                <Typography variant="body2" color="text.secondary">Type:</Typography>
+                <Typography variant="body1" sx={{ textTransform: 'capitalize' }}>
+                  {details.deleted_transaction.transaction_type}
+                </Typography>
+              </Grid>
+              <Grid item xs={12}>
+                <Typography variant="body2" color="text.secondary">Description:</Typography>
+                <Typography variant="body1">
+                  {details.deleted_transaction.description || '(No description)'}
+                </Typography>
+              </Grid>
+            </Grid>
+          </Box>
+
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body2" color="text.secondary">Transaction ID:</Typography>
+            <Typography variant="body2" fontFamily="monospace">
+              {details.transaction_id || 'Unknown'}
+            </Typography>
+          </Box>
+        </Box>
+      );
+    }
+
+    // Transaction Creation Details
+    if (eventType === AUDIT_EVENTS.TRANSACTION_CREATED && details.transaction_details) {
+      return (
+        <Box>
+          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+            Transaction Creation Details
+          </Typography>
+          
+          {/* Account Information */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary">Account Affected:</Typography>
+            <Typography variant="body1">
+              {details.account_name || 'Unknown'} ({details.account_email || details.account_affected || 'Unknown'})
+            </Typography>
+          </Box>
+
+          {/* Transaction Details */}
+          <Box sx={{ p: 1.5, bgcolor: 'success.50', color: 'text.primary', borderRadius: 1, border: '1px solid', borderColor: 'success.200' }}>
+            <Grid container spacing={1}>
+              <Grid item xs={6}>
+                <Typography variant="body2" color="text.secondary">Amount:</Typography>
+                <Typography variant="body1">${details.transaction_details.amount?.toFixed(2)}</Typography>
+              </Grid>
+              <Grid item xs={6}>
+                <Typography variant="body2" color="text.secondary">Type:</Typography>
+                <Typography variant="body1" sx={{ textTransform: 'capitalize' }}>
+                  {details.transaction_details.transaction_type}
+                </Typography>
+              </Grid>
+              <Grid item xs={12}>
+                <Typography variant="body2" color="text.secondary">Description:</Typography>
+                <Typography variant="body1">
+                  {details.transaction_details.description || '(No description)'}
+                </Typography>
+              </Grid>
+            </Grid>
+          </Box>
+
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body2" color="text.secondary">Transaction ID:</Typography>
+            <Typography variant="body2" fontFamily="monospace">
+              {details.transaction_id || 'Unknown'}
+            </Typography>
+          </Box>
+        </Box>
+      );
+    }
+
+    // Profile Update Details
+    if (eventType === AUDIT_EVENTS.PROFILE_UPDATED) {
+      return (
+        <Box>
+          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+            Profile Update Details
+          </Typography>
+          
+          <Grid container spacing={2}>
+            {details.displayName && (
+              <Grid item xs={12}>
+                <Typography variant="body2" color="text.secondary">Display Name:</Typography>
+                <Typography variant="body1">{details.displayName}</Typography>
+              </Grid>
+            )}
+            {details.mobile && (
+              <Grid item xs={12}>
+                <Typography variant="body2" color="text.secondary">Mobile:</Typography>
+                <Typography variant="body1">{details.mobile}</Typography>
+              </Grid>
+            )}
+            {details.preferences && (
+              <Grid item xs={12}>
+                <Typography variant="body2" color="text.secondary">Notification Preferences:</Typography>
+                <Box sx={{ mt: 1 }}>
+                  {Object.entries(details.preferences).map(([key, value]) => (
+                    <Chip 
+                      key={key}
+                      label={`${key}: ${value ? 'Enabled' : 'Disabled'}`}
+                      size="small"
+                      color={value ? 'success' : 'default'}
+                      sx={{ mr: 1, mb: 1 }}
+                    />
+                  ))}
+                </Box>
+              </Grid>
+            )}
+          </Grid>
+        </Box>
+      );
+    }
+
+    // Login/Logout Details
+    if ([AUDIT_EVENTS.LOGIN_SUCCESS, AUDIT_EVENTS.LOGIN_FAILURE, AUDIT_EVENTS.LOGOUT].includes(eventType)) {
+      return (
+        <Box>
+          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+            Authentication Details
+          </Typography>
+          
+          <Grid container spacing={2}>
+            {details.login_method && (
+              <Grid item xs={12} md={6}>
+                <Typography variant="body2" color="text.secondary">Login Method:</Typography>
+                <Typography variant="body1" sx={{ textTransform: 'capitalize' }}>
+                  {details.login_method.replace('_', ' ')}
+                </Typography>
+              </Grid>
+            )}
+            {details.session_token && (
+              <Grid item xs={12}>
+                <Typography variant="body2" color="text.secondary">Session Token:</Typography>
+                <Typography variant="body2" fontFamily="monospace">
+                  {details.session_token}
+                </Typography>
+              </Grid>
+            )}
+            {details.lastLogin && (
+              <Grid item xs={12} md={6}>
+                <Typography variant="body2" color="text.secondary">Last Login:</Typography>
+                <Typography variant="body1">
+                  {new Date(details.lastLogin).toLocaleString()}
+                </Typography>
+              </Grid>
+            )}
+          </Grid>
+        </Box>
+      );
+    }
+
+    // Default fallback to formatted JSON for other events
+    return (
+      <Box>
+        <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+          Event Details
+        </Typography>
+        <pre style={{ 
+          margin: 0, 
+          fontFamily: 'monospace', 
+          fontSize: '0.8em',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          backgroundColor: '#f5f5f5',
+          padding: '8px',
+          borderRadius: '4px'
+        }}>
+          {JSON.stringify(details, null, 2)}
+        </pre>
+      </Box>
+    );
   };
 
   // Export logs (simplified - just console log for now)
@@ -553,19 +822,11 @@ const AdminLogs = () => {
                 sx={{ 
                   p: 2, 
                   backgroundColor: 'grey.50',
-                  maxHeight: 300,
+                  maxHeight: 400,
                   overflow: 'auto'
                 }}
               >
-                <pre style={{ 
-                  margin: 0, 
-                  fontFamily: 'monospace', 
-                  fontSize: '0.8em',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word'
-                }}>
-                  {JSON.stringify(selectedLog.details, null, 2)}
-                </pre>
+                {renderEventDetails(selectedLog)}
               </Paper>
             </DialogContent>
             <DialogActions>

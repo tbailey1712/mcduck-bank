@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { processTransactions } from '../services/transactionService';
+import { processTransactionSummary } from '../services/apiService';
 
 /**
  * Hook for computing transaction summary from transaction data
@@ -21,7 +21,7 @@ const useTransactionSummary = (transactions = []) => {
       };
     }
 
-    const baseSummary = processTransactions(transactions);
+    const baseSummary = processTransactionSummary(transactions);
     
     // Add additional computed fields
     const netActivity = baseSummary.deposits + baseSummary.interests - baseSummary.withdrawals - baseSummary.serviceCharges;

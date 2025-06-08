@@ -4,6 +4,7 @@ export { default as ErrorNotification } from './ErrorNotification';
 export { default as Navbar } from './Navbar';
 export { default as UserProfileCard } from './UserProfileCard';
 export { default as AccountSummaryCard } from './AccountSummaryCard';
+export { default as AccountSummaryCards } from './AccountSummaryCards';
 export { default as TransactionHistoryTable } from './TransactionHistoryTable';
 export { default as ValidatedTextField } from './ValidatedTextField';
 export { default as WithdrawalForm } from './WithdrawalForm';

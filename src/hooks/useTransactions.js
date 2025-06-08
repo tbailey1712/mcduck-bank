@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { subscribeToTransactions } from '../services/userService';
-import { processTransactions } from '../services/transactionService';
 import useFirebaseSubscription from './useFirebaseSubscription';
 
 /**

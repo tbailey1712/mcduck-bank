@@ -1,332 +1,406 @@
 /**
  * Unified Authentication Service
- * Consolidates Firebase Auth with custom claims and session management
- * Replaces the dual auth system with a single source of truth
+ * Consolidates Firebase Auth, Redux state management, and secure session handling
+ * Replaces the dual auth system with a single, secure implementation
  */
 
-import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getAuth, onAuthStateChanged, onIdTokenChanged, signOut } from 'firebase/auth';
 import { getUserData } from './userService';
 import auditService, { AUDIT_EVENTS } from './auditService';
-import { sanitizeObject } from '../utils/validation';
-import firebaseApp from '../config/firebaseConfig';
-
-// Session management constants
-const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 hours
-const TOKEN_REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes
-const SESSION_KEY = 'mcduck_session';
+import { secureLog, RateLimiter } from '../utils/security';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../config/firebaseConfig';
 
 /**
- * Secure session storage with encryption-like obfuscation
+ * Secure session configuration
  */
-class SecureSessionManager {
-  constructor() {
-    this.sessionId = this.generateSessionId();
-  }
-
-  generateSessionId() {
-    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-      const array = new Uint8Array(32);
-      crypto.getRandomValues(array);
-      return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
-    }
-    return `session_${Date.now()}_${Math.random().toString(36).substr(2, 16)}`;
-  }
-
-  encodeSession(data) {
-    try {
-      const encoded = btoa(JSON.stringify({
-        ...data,
-        timestamp: Date.now(),
-        sessionId: this.sessionId
-      }));
-      return encoded;
-    } catch (error) {
-      console.warn('Failed to encode session data:', error);
-      return null;
-    }
-  }
-
-  decodeSession(encoded) {
-    try {
-      const decoded = JSON.parse(atob(encoded));
-      
-      // Check session expiration
-      if (Date.now() - decoded.timestamp > SESSION_DURATION) {
-        console.warn('Session expired');
-        this.clearSession();
-        return null;
-      }
-      
-      return decoded;
-    } catch (error) {
-      console.warn('Failed to decode session data:', error);
-      return null;
-    }
-  }
-
-  setSession(authData) {
-    try {
-      const encoded = this.encodeSession(authData);
-      if (encoded) {
-        localStorage.setItem(SESSION_KEY, encoded);
-        sessionStorage.setItem(SESSION_KEY, encoded);
-      }
-    } catch (error) {
-      console.warn('Failed to store session:', error);
-    }
-  }
-
-  getSession() {
-    try {
-      const encoded = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
-      if (encoded) {
-        return this.decodeSession(encoded);
-      }
-    } catch (error) {
-      console.warn('Failed to retrieve session:', error);
-    }
-    return null;
-  }
-
-  clearSession() {
-    try {
-      localStorage.removeItem(SESSION_KEY);
-      sessionStorage.removeItem(SESSION_KEY);
-      // Clear any legacy session data
-      localStorage.removeItem('sessionToken');
-      localStorage.removeItem('mcduck_auth_state');
-      sessionStorage.removeItem('mcduck_auth_state');
-    } catch (error) {
-      console.warn('Failed to clear session:', error);
-    }
-  }
-
-  extendSession() {
-    const currentSession = this.getSession();
-    if (currentSession) {
-      this.setSession(currentSession);
-    }
-  }
-}
+const SESSION_CONFIG = {
+  tokenRefreshInterval: 30 * 60 * 1000, // 30 minutes
+  sessionTimeout: 8 * 60 * 60 * 1000, // 8 hours
+  maxLoginAttempts: 5,
+  lockoutDuration: 15 * 60 * 1000, // 15 minutes
+  storageKey: 'mcduck_secure_session',
+};
 
 /**
  * Unified Authentication Manager
+ * Handles all authentication state, session management, and security
  */
 class UnifiedAuthService {
   constructor() {
     this.auth = getAuth();
-    this.functions = getFunctions(firebaseApp, 'us-central1');
-    this.sessionManager = new SecureSessionManager();
     this.currentUser = null;
-    this.authListeners = new Set();
-    this.refreshTokenTimer = null;
+    this.authState = null;
+    this.listeners = new Set();
+    this.sessionTimer = null;
+    this.refreshTimer = null;
+    this.rateLimiter = new RateLimiter(SESSION_CONFIG.maxLoginAttempts, SESSION_CONFIG.lockoutDuration);
     
-    this.initializeAuthListener();
-    this.setupTokenRefresh();
+    // Initialize secure session storage
+    this.initializeSession();
+    this.setupAuthListeners();
   }
 
   /**
-   * Add authentication state listener
+   * Initialize secure session management
    */
-  addAuthListener(callback) {
-    this.authListeners.add(callback);
+  initializeSession() {
+    // Generate session ID if not exists
+    if (!this.getSessionId()) {
+      this.generateNewSession();
+    }
+
+    // Clear any corrupted storage
+    this.cleanupCorruptedStorage();
     
-    // Immediately call with current state if available
-    if (this.currentUser !== null) {
-      callback(this.currentUser);
+    // Set up automatic session cleanup
+    this.setupSessionCleanup();
+  }
+
+  /**
+   * Generate new secure session
+   */
+  generateNewSession() {
+    const sessionId = this.generateSecureSessionId();
+    const sessionData = {
+      id: sessionId,
+      createdAt: Date.now(),
+      lastActivity: Date.now(),
+      userAgent: navigator.userAgent,
+      fingerprint: this.generateBrowserFingerprint()
+    };
+
+    this.setSecureStorage('session', sessionData);
+    return sessionId;
+  }
+
+  /**
+   * Generate cryptographically secure session ID
+   */
+  generateSecureSessionId() {
+    if (window.crypto && window.crypto.randomUUID) {
+      return window.crypto.randomUUID();
     }
     
-    return () => this.authListeners.delete(callback);
+    // Fallback for older browsers
+    const array = new Uint32Array(4);
+    window.crypto.getRandomValues(array);
+    return Array.from(array, dec => dec.toString(16).padStart(8, '0')).join('-');
   }
 
   /**
-   * Notify all listeners of auth state changes
+   * Generate browser fingerprint for session validation
    */
-  notifyListeners(authState) {
-    this.authListeners.forEach(callback => {
-      try {
-        callback(authState);
-      } catch (error) {
-        console.error('Auth listener error:', error);
-      }
-    });
+  generateBrowserFingerprint() {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.textBaseline = 'top';
+    ctx.font = '14px Arial';
+    ctx.fillText('Browser fingerprint', 2, 2);
+    
+    return {
+      screen: `${window.screen.width}x${window.screen.height}`,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      language: navigator.language,
+      platform: navigator.platform,
+      canvasFingerprint: canvas.toDataURL().slice(-50) // Last 50 chars
+    };
   }
 
   /**
-   * Initialize Firebase auth state listener
+   * Secure storage operations
    */
-  initializeAuthListener() {
-    return onAuthStateChanged(this.auth, async (firebaseUser) => {
-      try {
-        if (firebaseUser) {
-          await this.handleUserAuthenticated(firebaseUser);
-        } else {
-          await this.handleUserSignedOut();
-        }
-      } catch (error) {
-        console.error('Auth state change error:', error);
-        await this.handleAuthError(error);
-      }
-    });
-  }
-
-  /**
-   * Handle authenticated user
-   */
-  async handleUserAuthenticated(firebaseUser) {
+  setSecureStorage(key, data) {
     try {
-      console.log('🔐 Processing authenticated user:', firebaseUser.email);
+      const encrypted = this.encryptData(data);
+      localStorage.setItem(`${SESSION_CONFIG.storageKey}_${key}`, encrypted);
+      sessionStorage.setItem(`${SESSION_CONFIG.storageKey}_${key}`, encrypted);
+    } catch (error) {
+      secureLog('error', 'Failed to set secure storage', { key, error: error.message });
+    }
+  }
+
+  getSecureStorage(key) {
+    try {
+      const encrypted = localStorage.getItem(`${SESSION_CONFIG.storageKey}_${key}`) ||
+                      sessionStorage.getItem(`${SESSION_CONFIG.storageKey}_${key}`);
       
-      // Get fresh ID token with custom claims
-      const idTokenResult = await firebaseUser.getIdTokenResult();
+      if (!encrypted) return null;
+      return this.decryptData(encrypted);
+    } catch (error) {
+      secureLog('error', 'Failed to get secure storage', { key, error: error.message });
+      return null;
+    }
+  }
+
+  /**
+   * Simple encryption for session data (not cryptographically secure, but obfuscated)
+   */
+  encryptData(data) {
+    const jsonString = JSON.stringify(data);
+    return btoa(encodeURIComponent(jsonString));
+  }
+
+  decryptData(encrypted) {
+    try {
+      const decoded = decodeURIComponent(atob(encrypted));
+      return JSON.parse(decoded);
+    } catch (error) {
+      throw new Error('Invalid encrypted data');
+    }
+  }
+
+  /**
+   * Setup Firebase auth listeners
+   */
+  setupAuthListeners() {
+    // Auth state change listener
+    onAuthStateChanged(this.auth, async (firebaseUser) => {
+      await this.handleAuthStateChange(firebaseUser);
+    });
+
+    // Token refresh listener
+    onIdTokenChanged(this.auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        await this.handleTokenRefresh(firebaseUser);
+      }
+    });
+  }
+
+  /**
+   * Handle Firebase auth state changes
+   */
+  async handleAuthStateChange(firebaseUser) {
+    try {
+      if (firebaseUser) {
+        // User signed in
+        if (!this.rateLimiter.isAllowed(firebaseUser.email)) {
+          secureLog('warn', 'Login rate limit exceeded', { email: firebaseUser.email });
+          await this.signOut();
+          throw new Error('Too many login attempts. Please try again later.');
+        }
+
+        const idTokenResult = await firebaseUser.getIdTokenResult();
+        // Check if this is a genuine new login or just a page refresh/session restore
+        const existingAuth = this.getAuthState();
+        const isNewLogin = !existingAuth || 
+                         existingAuth.user?.uid !== firebaseUser.uid ||
+                         (Date.now() - (existingAuth.lastActivity || 0)) > 60000; // More than 1 minute since last activity
+
+        const userData = await this.loadUserData(firebaseUser);
+        
+        if (userData) {
+          
+          const authState = await this.createAuthState(firebaseUser, userData, idTokenResult);
+          await this.setAuthState(authState);
+          
+          // Only update last login and log audit event for genuine new logins
+          if (isNewLogin) {
+            await this.updateLastLogin(userData, firebaseUser);
+            
+            // Log successful authentication only for new logins
+            await auditService.logAuthEvent(AUDIT_EVENTS.LOGIN_SUCCESS, authState.user, {
+              sessionId: this.getSessionId(),
+              lastLogin: new Date().toISOString(),
+              loginType: existingAuth ? 'session_refresh' : 'new_login'
+            });
+            
+            secureLog('info', 'New login detected', { uid: firebaseUser.uid });
+          } else {
+            secureLog('info', 'Session restored from page refresh', { uid: firebaseUser.uid });
+          }
+
+          // Reset rate limiter on successful login
+          this.rateLimiter.reset(firebaseUser.email);
+        } else {
+          // Handle user data not found - be more lenient on session restore
+          if (isNewLogin) {
+            secureLog('error', 'User data not found after new authentication', { uid: firebaseUser.uid });
+            await this.signOut();
+          } else {
+            // For session restore, try to use existing auth data if available
+            if (existingAuth && existingAuth.user) {
+              secureLog('warn', 'User data not found on session restore, using cached data', { uid: firebaseUser.uid });
+              // Update timestamp but keep existing user data
+              const updatedAuthState = {
+                ...existingAuth,
+                lastActivity: Date.now(),
+                tokenResult: idTokenResult
+              };
+              await this.setAuthState(updatedAuthState);
+            } else {
+              secureLog('error', 'User data not found and no cached data available', { uid: firebaseUser.uid });
+              await this.signOut();
+            }
+          }
+        }
+      } else {
+        // User signed out
+        await this.clearAuthState();
+      }
+    } catch (error) {
+      secureLog('error', 'Auth state change error', { error: error.message });
+      await this.clearAuthState();
+      this.notifyListeners({ error: error.message });
+    }
+  }
+
+  /**
+   * Handle token refresh
+   */
+  async handleTokenRefresh(firebaseUser) {
+    try {
+      const idTokenResult = await firebaseUser.getIdTokenResult(true);
+      const currentAuth = this.getAuthState();
       
-      // Get user data from database
-      const userData = await getUserData(firebaseUser.email);
+      if (currentAuth) {
+        const updatedAuth = {
+          ...currentAuth,
+          token: idTokenResult.token,
+          tokenExpiration: new Date(idTokenResult.expirationTime).getTime(),
+          lastTokenRefresh: Date.now()
+        };
+        
+        await this.setAuthState(updatedAuth);
+        secureLog('info', 'Token refreshed successfully', { uid: firebaseUser.uid });
+      }
+    } catch (error) {
+      secureLog('error', 'Token refresh failed', { error: error.message });
+    }
+  }
+
+  /**
+   * Load user data with error handling
+   */
+  async loadUserData(firebaseUser) {
+    try {
+      // Try loading by email first (most common)
+      let userData = await getUserData(firebaseUser.email);
       
+      // Fallback to UID if email lookup fails
       if (!userData) {
-        console.log('❌ User not authorized - no account found');
-        await this.signOut();
-        throw new Error('Access denied. You do not have an authorized account.');
+        userData = await getUserData(firebaseUser.uid);
       }
 
-      // Create unified auth state
-      const authState = {
-        isAuthenticated: true,
-        user: {
-          uid: userData.user_id,
-          email: userData.email,
-          displayName: firebaseUser.displayName || userData.displayName || userData.name,
-          photoURL: firebaseUser.photoURL || userData.photoURL,
-          emailVerified: firebaseUser.emailVerified,
-          administrator: userData.administrator
-        },
-        // Use custom claims OR database field for admin status (hybrid approach)
-        isAdmin: idTokenResult.claims.administrator === true || userData.administrator === true,
-        permissions: this.calculatePermissions(idTokenResult.claims, userData),
-        claims: idTokenResult.claims,
-        tokenIssuedAt: idTokenResult.issuedAtTime,
-        tokenExpiresAt: idTokenResult.expirationTime,
-        sessionId: this.sessionManager.sessionId,
-        lastActivity: Date.now()
-      };
-
-      // Sanitize the auth state before storing
-      const sanitizedAuthState = sanitizeObject(authState);
-
-      // Store session securely
-      this.sessionManager.setSession(sanitizedAuthState);
-      
-      // Update current user
-      this.currentUser = sanitizedAuthState;
-      
-      // Log successful authentication
-      await this.logAuthEvent(AUDIT_EVENTS.LOGIN_SUCCESS, sanitizedAuthState.user, {
-        login_method: 'google_oauth',
-        token_issued_at: idTokenResult.issuedAtTime,
-        session_id: this.sessionManager.sessionId,
-        admin_status: sanitizedAuthState.isAdmin
-      });
-
-      // Notify listeners
-      this.notifyListeners(sanitizedAuthState);
-      
-      console.log('✅ Authentication completed successfully');
-      
+      return userData;
     } catch (error) {
-      console.error('Error handling authenticated user:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle user signed out
-   */
-  async handleUserSignedOut() {
-    console.log('🚪 User signed out');
-    
-    // Log logout if we had a current user
-    if (this.currentUser?.user) {
-      await this.logAuthEvent(AUDIT_EVENTS.LOGOUT, this.currentUser.user, {
-        logout_method: 'automatic',
-        session_duration: Date.now() - (this.currentUser.lastActivity || Date.now())
+      secureLog('error', 'Failed to load user data', { 
+        uid: firebaseUser.uid, 
+        email: firebaseUser.email,
+        error: error.message 
       });
+      return null;
+    }
+  }
+
+  /**
+   * Create auth state object
+   */
+  async createAuthState(firebaseUser, userData, idTokenResult) {
+    return {
+      isAuthenticated: true,
+      user: {
+        uid: userData.user_id || firebaseUser.uid,
+        email: userData.email || firebaseUser.email,
+        displayName: userData.displayName || firebaseUser.displayName,
+        photoURL: userData.photoURL || firebaseUser.photoURL,
+        administrator: userData.administrator || false,
+        emailVerified: firebaseUser.emailVerified
+      },
+      isAdmin: userData.administrator || idTokenResult.claims.administrator || false,
+      sessionId: this.getSessionId(),
+      token: idTokenResult.token,
+      tokenExpiration: new Date(idTokenResult.expirationTime).getTime(),
+      lastActivity: Date.now(),
+      loading: false,
+      error: null
+    };
+  }
+
+  /**
+   * Update last login timestamp
+   */
+  async updateLastLogin(userData, firebaseUser) {
+    try {
+      const docId = userData.id || userData.user_id || firebaseUser.email;
+      const userRef = doc(db, 'accounts', docId);
+      
+      await setDoc(userRef, {
+        lastLogin: new Date(),
+        lastIp: 'server-detected', // IP will be detected server-side
+        lastSessionToken: this.getSessionId(),
+        lastActivity: new Date()
+      }, { merge: true });
+    } catch (error) {
+      secureLog('error', 'Failed to update last login', { error: error.message });
+    }
+  }
+
+  /**
+   * Set auth state and persist securely
+   */
+  async setAuthState(authState) {
+    this.authState = authState;
+    this.setSecureStorage('auth', authState);
+    this.setupSessionTimeout();
+    this.setupTokenRefresh();
+    this.notifyListeners(authState);
+  }
+
+  /**
+   * Get current auth state
+   */
+  getAuthState() {
+    if (this.authState) return this.authState;
+    
+    // Try to restore from secure storage
+    const stored = this.getSecureStorage('auth');
+    if (stored && this.validateStoredSession(stored)) {
+      this.authState = stored;
+      return stored;
     }
     
-    // Clear session
-    this.sessionManager.clearSession();
-    
-    // Update current user
-    this.currentUser = null;
-    
-    // Clear token refresh timer
-    if (this.refreshTokenTimer) {
-      clearInterval(this.refreshTokenTimer);
-      this.refreshTokenTimer = null;
+    return null;
+  }
+
+  /**
+   * Validate stored session
+   */
+  validateStoredSession(authState) {
+    const session = this.getSecureStorage('session');
+    if (!session) return false;
+
+    // Check session timeout
+    const now = Date.now();
+    if (now - session.lastActivity > SESSION_CONFIG.sessionTimeout) {
+      secureLog('info', 'Session expired due to inactivity');
+      return false;
     }
-    
-    // Notify listeners
-    this.notifyListeners(null);
-  }
 
-  /**
-   * Handle authentication errors
-   */
-  async handleAuthError(error) {
-    console.error('Authentication error:', error);
-    
-    // Clear any existing session
-    this.sessionManager.clearSession();
-    this.currentUser = null;
-    
-    // Notify listeners with error
-    this.notifyListeners({ error: error.message });
-  }
-
-  /**
-   * Calculate user permissions based on claims and user data
-   */
-  calculatePermissions(claims, userData) {
-    const permissions = ['user:read', 'user:update'];
-    
-    // Check both custom claims AND database field for admin status
-    if (claims.administrator === true || userData.administrator === true) {
-      permissions.push(
-        'admin:read',
-        'admin:write',
-        'admin:users:read',
-        'admin:users:write',
-        'admin:transactions:read',
-        'admin:transactions:write',
-        'admin:system:read',
-        'admin:system:write'
-      );
+    // Check token expiration
+    if (authState.tokenExpiration && now >= authState.tokenExpiration) {
+      secureLog('info', 'Token expired');
+      return false;
     }
-    
-    return permissions;
+
+    // Validate browser fingerprint
+    const currentFingerprint = this.generateBrowserFingerprint();
+    if (JSON.stringify(session.fingerprint) !== JSON.stringify(currentFingerprint)) {
+      secureLog('warn', 'Browser fingerprint mismatch - possible session hijacking attempt');
+      return false;
+    }
+
+    return true;
   }
 
   /**
-   * Check if user has specific permission
+   * Clear auth state
    */
-  hasPermission(permission) {
-    return this.currentUser?.permissions?.includes(permission) || false;
-  }
-
-  /**
-   * Check if user can access specific resource
-   */
-  canAccessResource(resourceUserId) {
-    if (!this.currentUser?.isAuthenticated) return false;
-    if (this.currentUser.isAdmin) return true;
-    return this.currentUser.user?.uid === resourceUserId;
-  }
-
-  /**
-   * Get current authentication state
-   */
-  getCurrentAuth() {
-    return this.currentUser;
+  async clearAuthState() {
+    this.authState = null;
+    this.clearSecureStorage();
+    this.clearTimers();
+    this.notifyListeners({ isAuthenticated: false, loading: false });
   }
 
   /**
@@ -334,146 +408,199 @@ class UnifiedAuthService {
    */
   async signOut() {
     try {
-      // Log logout event before signing out
-      if (this.currentUser?.user) {
-        await this.logAuthEvent(AUDIT_EVENTS.LOGOUT, this.currentUser.user, {
-          logout_method: 'manual',
-          session_duration: Date.now() - (this.currentUser.lastActivity || Date.now())
+      const currentAuth = this.getAuthState();
+      
+      if (currentAuth?.user) {
+        // Log logout event
+        await auditService.logAuthEvent(AUDIT_EVENTS.LOGOUT, currentAuth.user, {
+          sessionId: this.getSessionId(),
+          sessionDuration: Date.now() - (currentAuth.lastActivity || Date.now())
         });
       }
-      
+
       await signOut(this.auth);
+      await this.clearAuthState();
+      this.generateNewSession(); // Generate new session for security
       
+      secureLog('info', 'User signed out successfully');
     } catch (error) {
-      console.error('Error signing out:', error);
-      // Still clear local state even if Firebase signOut fails
-      await this.handleUserSignedOut();
-      throw error;
+      secureLog('error', 'Sign out error', { error: error.message });
+      await this.clearAuthState(); // Clear state even if Firebase signOut fails
     }
   }
 
   /**
-   * Refresh authentication token
+   * Session management
    */
-  async refreshToken() {
-    try {
-      const user = this.auth.currentUser;
-      if (user) {
-        const idTokenResult = await user.getIdTokenResult(true); // Force refresh
-        
-        if (this.currentUser) {
-          this.currentUser.tokenIssuedAt = idTokenResult.issuedAtTime;
-          this.currentUser.tokenExpiresAt = idTokenResult.expirationTime;
-          this.currentUser.claims = idTokenResult.claims;
-          this.currentUser.lastActivity = Date.now();
-          
-          // Update session storage
-          this.sessionManager.setSession(this.currentUser);
-          
-          console.log('🔄 Token refreshed successfully');
-        }
-      }
-    } catch (error) {
-      console.error('Error refreshing token:', error);
+  getSessionId() {
+    const session = this.getSecureStorage('session');
+    return session?.id || null;
+  }
+
+  updateActivity() {
+    const session = this.getSecureStorage('session');
+    if (session) {
+      session.lastActivity = Date.now();
+      this.setSecureStorage('session', session);
     }
+
+    const authState = this.getAuthState();
+    if (authState) {
+      authState.lastActivity = Date.now();
+      this.setSecureStorage('auth', authState);
+    }
+  }
+
+  /**
+   * Setup automatic session timeout
+   */
+  setupSessionTimeout() {
+    this.clearTimers();
+    
+    this.sessionTimer = setTimeout(() => {
+      secureLog('info', 'Session timeout reached');
+      this.signOut();
+    }, SESSION_CONFIG.sessionTimeout);
   }
 
   /**
    * Setup automatic token refresh
    */
   setupTokenRefresh() {
-    this.refreshTokenTimer = setInterval(() => {
-      if (this.currentUser?.isAuthenticated) {
-        this.refreshToken();
-        this.sessionManager.extendSession();
+    this.refreshTimer = setTimeout(async () => {
+      if (this.auth.currentUser) {
+        try {
+          await this.auth.currentUser.getIdToken(true);
+        } catch (error) {
+          secureLog('error', 'Automatic token refresh failed', { error: error.message });
+        }
       }
-    }, TOKEN_REFRESH_INTERVAL);
+    }, SESSION_CONFIG.tokenRefreshInterval);
   }
 
   /**
-   * Set admin claims for user (admin only)
+   * Clear all timers
    */
-  async setAdminClaims(uid) {
-    if (!this.hasPermission('admin:users:write')) {
-      throw new Error('Insufficient permissions to set admin claims');
+  clearTimers() {
+    if (this.sessionTimer) {
+      clearTimeout(this.sessionTimer);
+      this.sessionTimer = null;
     }
-    
-    try {
-      const setAdminRole = httpsCallable(this.functions, 'setAdminRole');
-      const result = await setAdminRole({ uid });
-      return result.data.success;
-    } catch (error) {
-      console.error('Error setting admin claims:', error);
-      throw new Error('Failed to set admin privileges');
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
     }
   }
 
   /**
-   * Remove admin claims from user (admin only)
+   * Storage cleanup
    */
-  async removeAdminClaims(uid) {
-    if (!this.hasPermission('admin:users:write')) {
-      throw new Error('Insufficient permissions to remove admin claims');
-    }
-    
+  clearSecureStorage() {
     try {
-      const removeAdminRole = httpsCallable(this.functions, 'removeAdminRole');
-      const result = await removeAdminRole({ uid });
-      return result.data.success;
-    } catch (error) {
-      console.error('Error removing admin claims:', error);
-      throw new Error('Failed to remove admin privileges');
-    }
-  }
-
-  /**
-   * Initialize admin user (one-time setup)
-   */
-  async initializeAdminUser(email) {
-    try {
-      // Use direct fetch for 2nd Gen Cloud Functions
-      const functionUrl = 'https://initializeadminuser-7lnuwmjvea-uc.a.run.app';
-      
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email }),
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith(SESSION_CONFIG.storageKey)) {
+          localStorage.removeItem(key);
+        }
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      return result.success;
+      
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.startsWith(SESSION_CONFIG.storageKey)) {
+          sessionStorage.removeItem(key);
+        }
+      });
     } catch (error) {
-      console.error('Error initializing admin user:', error);
-      throw new Error('Failed to initialize admin user');
+      secureLog('error', 'Failed to clear secure storage', { error: error.message });
     }
   }
 
-  /**
-   * Log authentication events
-   */
-  async logAuthEvent(eventType, user, details = {}) {
+  cleanupCorruptedStorage() {
     try {
-      await auditService.logAuthEvent(eventType, user, details);
+      // Clear old auth data that might be corrupted
+      ['mcduck_auth_state', 'sessionToken'].forEach(key => {
+        localStorage.removeItem(key);
+        sessionStorage.removeItem(key);
+      });
     } catch (error) {
-      console.warn('Failed to log auth event:', error);
-      // Don't throw - audit logging shouldn't break auth flow
+      secureLog('error', 'Failed to cleanup corrupted storage', { error: error.message });
     }
   }
 
+  setupSessionCleanup() {
+    // Clean up on page unload
+    window.addEventListener('beforeunload', () => {
+      if (this.authState?.user) {
+        // Update last activity
+        this.updateActivity();
+      }
+    });
+
+    // Update activity on user interaction
+    ['click', 'keypress', 'scroll', 'mousemove'].forEach(event => {
+      document.addEventListener(event, () => {
+        this.updateActivity();
+      }, { passive: true, once: false });
+    });
+  }
+
   /**
-   * Cleanup resources
+   * Listener management
    */
-  destroy() {
-    if (this.refreshTokenTimer) {
-      clearInterval(this.refreshTokenTimer);
+  addListener(callback) {
+    this.listeners.add(callback);
+    
+    // Immediately call with current state
+    const currentState = this.getAuthState() || { isAuthenticated: false, loading: false };
+    callback(currentState);
+    
+    return () => this.listeners.delete(callback);
+  }
+
+  notifyListeners(authState) {
+    this.listeners.forEach(callback => {
+      try {
+        callback(authState);
+      } catch (error) {
+        secureLog('error', 'Auth listener error', { error: error.message });
+      }
+    });
+  }
+
+  /**
+   * Permission helpers
+   */
+  hasPermission(permission) {
+    const authState = this.getAuthState();
+    if (!authState?.isAuthenticated) return false;
+    
+    const permissions = this.getUserPermissions();
+    return permissions.includes(permission);
+  }
+
+  canAccessResource(resourceUserId) {
+    const authState = this.getAuthState();
+    if (!authState?.isAuthenticated) return false;
+    if (authState.isAdmin) return true;
+    return authState.user?.uid === resourceUserId;
+  }
+
+  getUserPermissions() {
+    const authState = this.getAuthState();
+    if (!authState?.user) return [];
+    
+    const permissions = ['user:read', 'user:update'];
+    
+    if (authState.isAdmin) {
+      permissions.push(
+        'admin:read',
+        'admin:write',
+        'admin:users:read',
+        'admin:users:write',
+        'admin:transactions:read',
+        'admin:transactions:write'
+      );
     }
-    this.authListeners.clear();
+    
+    return permissions;
   }
 }
 
@@ -481,4 +608,3 @@ class UnifiedAuthService {
 const unifiedAuthService = new UnifiedAuthService();
 
 export default unifiedAuthService;
-export { SecureSessionManager };

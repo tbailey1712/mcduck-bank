@@ -1,21 +1,26 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
-// import App from './App';
-// import App from './TestApp';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 import { Provider } from 'react-redux';
 import { store } from './store';
+import { UnifiedAuthProvider } from './contexts/UnifiedAuthProvider';
+import updateService from './services/updateService';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
     <Provider store={store}>
-      <App />
+      <UnifiedAuthProvider>
+        <App />
+      </UnifiedAuthProvider>
     </Provider>
   </React.StrictMode>
 );
+
+// Initialize PWA update service
+updateService.init();
 
 // Register Firebase messaging service worker for notifications only
 if ('serviceWorker' in navigator) {

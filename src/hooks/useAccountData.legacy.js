@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useSelector } from 'react-redux';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 import { getUserData, subscribeToUserData, subscribeToTransactions } from '../services/userService';
-import { processTransactions } from '../services/transactionService';
+import { processTransactionSummary } from '../services/apiService';
 import useFirebaseSubscription from './useFirebaseSubscription';
 
 /**
@@ -10,9 +10,8 @@ import useFirebaseSubscription from './useFirebaseSubscription';
  * This is the original working version before refactoring
  */
 const useAccountDataLegacy = () => {
-  const { user } = useSelector((state) => state.auth);
+  const { user, isAdmin } = useUnifiedAuth();
   const navigate = useNavigate();
-  const isAdmin = user?.isAdmin || user?.administrator;
   const { user_id: initialTargetUserId } = useParams();
   
   // State management - make targetUserId reactive to URL changes
@@ -83,7 +82,10 @@ const useAccountDataLegacy = () => {
           
           setUserData(enhancedUserData);
         } else {
-          throw new Error('No user data found');
+          // More specific error message and don't throw on refresh - user data may load from subscription
+          console.warn('Initial user data fetch returned null, waiting for subscription data...');
+          setError('Loading user data...');
+          // Don't throw error here - let the subscription handle it
         }
       } catch (error) {
         console.error('Error fetching user data:', error);
@@ -104,9 +106,25 @@ const useAccountDataLegacy = () => {
       if (updatedUserData) {
         setUserData(updatedUserData);
         setError(null);
+        setLoading(false);
+      } else {
+        // Don't immediately set error on null data - could be temporary
+        // Only set error if we've been explicitly waiting and auth is ready
+        const currentTime = Date.now();
+        setTimeout(() => {
+          // Only show error if we still don't have data after reasonable time
+          // and we're not in the middle of auth state changes
+          setUserData(currentData => {
+            if (!currentData && currentUserId) {
+              setError('Loading user data...');
+              // Don't set loading to false yet - keep trying
+            }
+            return currentData;
+          });
+        }, 2000); // Reduced timeout and changed message
       }
     });
-  }, [currentUserId]);
+  }, [currentUserId, userData]);
 
   // Setup user data subscription
   useFirebaseSubscription(createUserDataSubscription, [currentUserId]);
@@ -117,7 +135,7 @@ const useAccountDataLegacy = () => {
     
     const unsubscribe = subscribeToTransactions(currentUserId, (updatedTransactions) => {
       setTransactions(updatedTransactions);
-      const summary = processTransactions(updatedTransactions);
+      const summary = processTransactionSummary(updatedTransactions);
       setTransactionSummary(summary);
       setError(null);
     }, user);

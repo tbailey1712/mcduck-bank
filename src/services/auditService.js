@@ -18,6 +18,12 @@ export const AUDIT_EVENTS = {
   TRANSACTION_EDITED: 'transaction_edited',
   TRANSACTION_DELETED: 'transaction_deleted',
   
+  // Withdrawal request events
+  WITHDRAWAL_REQUEST_CREATED: 'withdrawal_request_created',
+  WITHDRAWAL_REQUEST_APPROVED: 'withdrawal_request_approved',
+  WITHDRAWAL_REQUEST_REJECTED: 'withdrawal_request_rejected',
+  WITHDRAWAL_REQUEST_CANCELLED: 'withdrawal_request_cancelled',
+  
   // Administrative events
   USER_CREATED: 'user_created',
   USER_UPDATED: 'user_updated',
@@ -171,35 +177,26 @@ export const logAuthEvent = async (eventType, user, details = {}) => {
  * Log transaction events
  */
 export const logTransactionEvent = async (eventType, user, transactionData, target = null) => {
-  // Filter out undefined values to avoid Firestore errors
-  const details = {
-    transaction_id: transactionData.id,
-    transaction_type: transactionData.transaction_type || transactionData.transactionType,
-    amount: transactionData.amount,
-    description: transactionData.description || transactionData.comment
-  };
+  // Start with all provided transaction data and filter out undefined/null values
+  const details = {};
+  
+  // Copy all fields from transactionData, filtering out undefined/null values
+  Object.keys(transactionData).forEach(key => {
+    const value = transactionData[key];
+    if (value !== undefined && value !== null) {
+      details[key] = value;
+    }
+  });
 
-  // Only add optional fields if they have values
-  if (transactionData.previous_amount !== undefined) {
-    details.previous_amount = transactionData.previous_amount;
+  // Ensure backward compatibility with legacy field names
+  if (!details.transaction_id && transactionData.id) {
+    details.transaction_id = transactionData.id;
   }
-  if (transactionData.balance_after !== undefined) {
-    details.balance_after = transactionData.balance_after;
+  if (!details.transaction_type && transactionData.transactionType) {
+    details.transaction_type = transactionData.transactionType;
   }
-  if (transactionData.request_type !== undefined) {
-    details.request_type = transactionData.request_type;
-  }
-  if (transactionData.initiated_by !== undefined) {
-    details.initiated_by = transactionData.initiated_by;
-  }
-  if (transactionData.deleted_at !== undefined) {
-    details.deleted_at = transactionData.deleted_at;
-  }
-  if (transactionData.edited_from !== undefined) {
-    details.edited_from = transactionData.edited_from;
-  }
-  if (transactionData.deleted_from !== undefined) {
-    details.deleted_from = transactionData.deleted_from;
+  if (!details.description && transactionData.comment) {
+    details.description = transactionData.comment;
   }
 
   return logAuditEvent(eventType, user, details, target);

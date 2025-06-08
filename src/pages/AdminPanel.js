@@ -13,6 +13,7 @@ import { AdminTransactionForm } from '../components';
 import serverNotificationService from '../services/serverNotificationService';
 import auditService, { AUDIT_EVENTS } from '../services/auditService';
 import withdrawalDepositService from '../services/withdrawalDepositService';
+import withdrawalTaskService from '../services/withdrawalTaskService';
 
 const AdminPanel = () => {
   const { user, isAdmin, updateActivity } = useUnifiedAuth();
@@ -299,6 +300,35 @@ const AdminPanel = () => {
     setTransactionError('');
 
     try {
+      // Handle withdrawal_request differently - create a task instead of transaction
+      if (transactionData.transactionType === 'withdrawal_request') {
+        // Find target customer for the request
+        const targetCustomer = customers.find(c => c.user_id === transactionData.userId);
+        
+        const mockUser = {
+          uid: transactionData.userId,
+          email: targetCustomer?.email || 'unknown@example.com',
+          displayName: targetCustomer?.displayName || targetCustomer?.name || 'Unknown User'
+        };
+
+        const requestData = {
+          amount: transactionData.amount,
+          description: transactionData.description || 'Admin created withdrawal request'
+        };
+
+        const result = await withdrawalTaskService.createWithdrawalRequest(requestData, mockUser);
+        
+        if (result.success) {
+          console.log('✅ Withdrawal request task created:', result.taskId);
+          // Refresh customer data
+          await fetchCustomers();
+          return; // Exit early for withdrawal requests
+        } else {
+          throw new Error('Failed to create withdrawal request');
+        }
+      }
+
+      // Handle regular transactions
       const transactionRef = collection(db, 'transactions');
       const docRef = await addDoc(transactionRef, {
         user_id: transactionData.userId,

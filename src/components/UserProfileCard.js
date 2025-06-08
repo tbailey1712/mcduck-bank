@@ -1,12 +1,11 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { Box, Typography, Avatar, Card, CardContent } from '@mui/material';
-import { useSelector } from 'react-redux';
-import { formatCurrency } from '../utils/formatUtils';
+import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 
 const UserProfileCard = React.memo(({ userData, transactionSummary, isLoading }) => {
   // Get auth user data for profile photo fallback
-  const authUser = useSelector((state) => state.auth.user);
+  const { user: authUser } = useUnifiedAuth();
 
   if (isLoading) {
     return (
@@ -58,12 +57,6 @@ const UserProfileCard = React.memo(({ userData, transactionSummary, isLoading })
             Administrator: {userData?.administrator ? 'Yes' : 'No'}
           </Typography>
         </Box>
-        <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
-          Account Balance
-        </Typography>
-        <Typography variant="h4" component="div">
-          {formatCurrency(transactionSummary?.balance || 0)}
-        </Typography>
       </CardContent>
     </Card>
   );

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useSelector } from 'react-redux';
+import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 import notificationService from '../services/notificationService';
 import serverNotificationService from '../services/serverNotificationService';
 
@@ -10,7 +10,7 @@ export const useNotifications = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const user = useSelector((state) => state.auth.user);
+  const { user } = useUnifiedAuth();
 
   useEffect(() => {
     // Initialize notification status

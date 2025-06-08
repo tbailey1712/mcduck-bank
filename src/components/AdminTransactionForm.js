@@ -221,6 +221,7 @@ const AdminTransactionForm = ({
             >
               <MenuItem value="deposit">Deposit</MenuItem>
               <MenuItem value="withdrawal">Withdrawal</MenuItem>
+              <MenuItem value="withdrawal_request">Withdrawal Request</MenuItem>
               <MenuItem value="service_charge">Service Charge</MenuItem>
               <MenuItem value="interest">Interest</MenuItem>
             </Select>
