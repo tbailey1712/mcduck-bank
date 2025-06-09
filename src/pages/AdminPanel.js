@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
-import { Box, Container, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Paper, Card, CardContent, Grid, Alert, InputAdornment, useTheme, useMediaQuery, Stack, CircularProgress } from '@mui/material';
+import { Box, Container, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Paper, Card, CardContent, Grid, Alert, InputAdornment, useTheme, useMediaQuery, Stack, CircularProgress, FormControlLabel, Switch, Divider } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import { collection, query, getDocs, addDoc, doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { collection, query, getDocs, addDoc, doc, updateDoc, deleteDoc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 import { formatCurrency } from '../utils/formatUtils';
 import { format } from 'date-fns';
@@ -40,10 +40,15 @@ const AdminPanel = () => {
   
   // System configuration state
   const [systemConfig, setSystemConfig] = useState({
-    interest_rate: 1.75
+    interest_rate: 1.75,
+    allowNewUsers: false
   });
   const [configLoading, setConfigLoading] = useState(false);
   const [configError, setConfigError] = useState('');
+  
+  // Registration toggle status
+  const [toggleSaving, setToggleSaving] = useState(false);
+  const [toggleStatus, setToggleStatus] = useState('');
 
   // Jobs state
   const [jobsLoading, setJobsLoading] = useState(false);
@@ -129,7 +134,8 @@ const AdminPanel = () => {
       if (configSnap.exists()) {
         const configData = configSnap.data();
         setSystemConfig({
-          interest_rate: configData.interest_rate || 1.75
+          interest_rate: configData.interest_rate || 1.75,
+          allowNewUsers: configData.allowNewUsers || false
         });
       }
     } catch (error) {
@@ -146,8 +152,15 @@ const AdminPanel = () => {
       setConfigLoading(true);
       setConfigError('');
       
+      console.log('🔧 Updating system config:', newConfig);
+      console.log('🔧 Previous config:', systemConfig);
+      
       const configRef = doc(db, 'system', 'config');
-      await updateDoc(configRef, newConfig);
+      
+      // Use setDoc with merge to create document if it doesn't exist
+      await setDoc(configRef, newConfig, { merge: true });
+      
+      console.log('✅ System config updated successfully in Firestore');
       
       // Log configuration update for audit
       try {
@@ -166,13 +179,54 @@ const AdminPanel = () => {
       
       setSystemConfig(prev => ({ ...prev, ...newConfig }));
     } catch (error) {
-      console.error('Error updating system config:', error);
-      setConfigError('Failed to update system configuration');
+      console.error('❌ Error updating system config:', error);
+      console.error('❌ Error details:', error.message, error.code);
+      setConfigError(`Failed to update system configuration: ${error.message}`);
       throw error;
     } finally {
       setConfigLoading(false);
     }
   }, []);
+
+  // Save registration toggle immediately
+  const updateRegistrationSetting = useCallback(async (allowNewUsers) => {
+    try {
+      setToggleSaving(true);
+      setToggleStatus('');
+      
+      console.log('🔄 Updating registration setting:', allowNewUsers);
+      
+      const configRef = doc(db, 'system', 'config');
+      await setDoc(configRef, { allowNewUsers }, { merge: true });
+      
+      console.log('✅ Registration setting updated successfully');
+      setToggleStatus('success');
+      
+      // Log configuration update for audit
+      try {
+        await auditService.logAdminEvent(
+          AUDIT_EVENTS.CONFIG_UPDATED,
+          user,
+          {
+            config_changes: { allowNewUsers },
+            previous_config: { allowNewUsers: systemConfig.allowNewUsers },
+            setting_changed: 'user_registration',
+            sensitive: true
+          }
+        );
+      } catch (auditError) {
+        console.warn('Failed to log registration setting audit event:', auditError);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error updating registration setting:', error);
+      setToggleStatus('error');
+    } finally {
+      setToggleSaving(false);
+      // Clear status after 3 seconds
+      setTimeout(() => setToggleStatus(''), 3000);
+    }
+  }, [user, systemConfig.allowNewUsers]);
 
   // Retry functionality - must be before any conditional returns
   const handleRetry = useCallback(() => {
@@ -703,12 +757,73 @@ const AdminPanel = () => {
               <Button
                 variant="contained"
                 color="primary"
-                onClick={() => updateSystemConfig({ interest_rate: systemConfig.interest_rate })}
+                onClick={() => {
+                  console.log('💾 Interest rate save button clicked:', systemConfig.interest_rate);
+                  updateSystemConfig({ 
+                    interest_rate: systemConfig.interest_rate
+                  });
+                }}
                 disabled={configLoading}
                 fullWidth
               >
-                {configLoading ? 'Updating...' : 'Update Configuration'}
+                {configLoading ? 'Saving...' : 'Save Interest Rate'}
               </Button>
+            </Grid>
+          </Grid>
+          
+          <Divider sx={{ my: 3 }} />
+          
+          <Typography variant="h6" gutterBottom>
+            User Registration Settings
+          </Typography>
+          
+          <Grid container spacing={3} alignItems="center">
+            <Grid item xs={12} sm={8} md={6}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={systemConfig.allowNewUsers}
+                    onChange={(e) => {
+                      const newValue = e.target.checked;
+                      console.log('🔄 Toggle changed:', newValue);
+                      
+                      // Update local state immediately
+                      setSystemConfig(prev => ({
+                        ...prev,
+                        allowNewUsers: newValue
+                      }));
+                      
+                      // Save to database immediately
+                      updateRegistrationSetting(newValue);
+                    }}
+                    disabled={toggleSaving}
+                    color="primary"
+                  />
+                }
+                label="Allow New User Registration"
+                sx={{ width: '100%' }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                When enabled, new Google OAuth users will be automatically registered if their email exists in accounts. 
+                When disabled, new login attempts are logged as warnings and access is denied.
+              </Typography>
+              
+              {/* Status messages */}
+              {toggleSaving && (
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  Saving registration setting...
+                </Alert>
+              )}
+              {toggleStatus === 'success' && (
+                <Alert severity="success" sx={{ mt: 1 }}>
+                  ✅ Registration setting saved successfully!
+                </Alert>
+              )}
+              {toggleStatus === 'error' && (
+                <Alert severity="error" sx={{ mt: 1 }}>
+                  ❌ Failed to save registration setting. Please try again.
+                </Alert>
+              )}
             </Grid>
           </Grid>
         </CardContent>

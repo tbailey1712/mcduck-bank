@@ -207,7 +207,7 @@ const AdminLogs = () => {
           </Typography>
           
           {details.changes_made?.map((change, index) => (
-            <Box key={index} sx={{ mb: 2, p: 1.5, bgcolor: 'grey.100', color: 'text.primary', borderRadius: 1 }}>
+            <Box key={index} sx={{ mb: 2, p: 1.5, bgcolor: 'background.default', color: 'text.primary', borderRadius: 1, border: 1, borderColor: 'divider' }}>
               <Typography variant="body2" sx={{ fontWeight: 'bold', textTransform: 'capitalize' }}>
                 {change.field}:
               </Typography>
@@ -261,7 +261,7 @@ const AdminLogs = () => {
             Deleted Transaction
           </Typography>
           
-          <Box sx={{ p: 1.5, bgcolor: 'error.50', color: 'text.primary', borderRadius: 1, border: '1px solid', borderColor: 'error.200' }}>
+          <Box sx={{ p: 1.5, bgcolor: 'background.default', color: 'text.primary', borderRadius: 1, border: '1px solid', borderColor: 'error.main' }}>
             <Grid container spacing={1}>
               <Grid item xs={6}>
                 <Typography variant="body2" color="text.secondary">Amount:</Typography>
@@ -309,7 +309,7 @@ const AdminLogs = () => {
           </Box>
 
           {/* Transaction Details */}
-          <Box sx={{ p: 1.5, bgcolor: 'success.50', color: 'text.primary', borderRadius: 1, border: '1px solid', borderColor: 'success.200' }}>
+          <Box sx={{ p: 1.5, bgcolor: 'background.default', color: 'text.primary', borderRadius: 1, border: '1px solid', borderColor: 'success.main' }}>
             <Grid container spacing={1}>
               <Grid item xs={6}>
                 <Typography variant="body2" color="text.secondary">Amount:</Typography>
@@ -426,18 +426,21 @@ const AdminLogs = () => {
         <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
           Event Details
         </Typography>
-        <pre style={{ 
+        <Box component="pre" sx={{ 
           margin: 0, 
           fontFamily: 'monospace', 
           fontSize: '0.8em',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
-          backgroundColor: '#f5f5f5',
-          padding: '8px',
-          borderRadius: '4px'
+          bgcolor: 'background.default',
+          color: 'text.primary',
+          p: 1,
+          borderRadius: 1,
+          border: 1,
+          borderColor: 'divider'
         }}>
           {JSON.stringify(details, null, 2)}
-        </pre>
+        </Box>
       </Box>
     );
   };
@@ -821,7 +824,7 @@ const AdminLogs = () => {
                 variant="outlined" 
                 sx={{ 
                   p: 2, 
-                  backgroundColor: 'grey.50',
+                  bgcolor: 'background.default',
                   maxHeight: 400,
                   overflow: 'auto'
                 }}

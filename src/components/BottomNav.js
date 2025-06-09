@@ -1,13 +1,14 @@
-import { BottomNavigation, BottomNavigationAction, Paper, Menu, MenuItem, Avatar, Badge } from '@mui/material';
+import { BottomNavigation, BottomNavigationAction, Paper, Menu, MenuItem, Avatar, Badge, Box } from '@mui/material';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import RequestPageIcon from '@mui/icons-material/RequestPage';
-import BarChartIcon from '@mui/icons-material/BarChart';
+import EmailIcon from '@mui/icons-material/Email';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 import withdrawalTaskService from '../services/withdrawalTaskService';
+import auditService from '../services/auditService';
 
 export default function BottomNav() {
   const navigate = useNavigate();
@@ -15,6 +16,7 @@ export default function BottomNav() {
   const { isAdmin, signOut, user } = useUnifiedAuth();
   const [profileAnchor, setProfileAnchor] = useState(null);
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+  const [unviewedSecurityEventsCount, setUnviewedSecurityEventsCount] = useState(0);
 
   // Subscribe to pending withdrawal requests count for admins
   useEffect(() => {
@@ -31,35 +33,70 @@ export default function BottomNav() {
     return () => unsubscribe();
   }, [isAdmin, user]);
 
+  // Subscribe to unviewed security events count for admins
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+
+    const fetchSecurityEventsCount = async () => {
+      try {
+        const count = await auditService.getUnviewedSecurityEventsCount();
+        setUnviewedSecurityEventsCount(count);
+      } catch (error) {
+        console.error('Failed to fetch unviewed security events count:', error);
+      }
+    };
+
+    // Initial fetch
+    fetchSecurityEventsCount();
+
+    // Set up periodic polling (every 30 seconds)
+    const interval = setInterval(fetchSecurityEventsCount, 30000);
+
+    return () => clearInterval(interval);
+  }, [isAdmin, user]);
+
   // Determine current tab based on location
   const getCurrentValue = () => {
-    if (location.pathname.includes('/account')) return 0;
-    if (location.pathname.includes('/withdrawal')) return 1;
-    if (location.pathname.includes('/admin') && !location.pathname.includes('/requests') && !location.pathname.includes('/logs')) return 2;
-    if (location.pathname.includes('/admin/requests')) return 3;
-    if (location.pathname.includes('/logs')) return 4;
-    return 0; // default to account
+    const path = location.pathname;
+    
+    if (!isAdmin) {
+      // Regular user navigation: History(0), Withdraw(1)
+      if (path.includes('/withdrawal')) return 1;
+      return 0; // History tab (account)
+    }
+    
+    // Admin navigation - corrected indices based on actual DOM behavior:
+    // History(0), Admin(2), Requests(3), Messages(4)
+    switch (path) {
+      case '/admin/messages':
+        return 4;
+      case '/admin/requests':
+        return 3;
+      case '/admin':
+        return 2;
+      default:
+        if (path.startsWith('/admin/logs')) return 2;
+        if (path.includes('/account')) return 0;
+        return 0; // Default to History
+    }
   };
 
   const handleNavigation = (event, newValue) => {
+    if (!isAdmin) {
+      // Regular user: History(0), Withdraw(1)
+      switch (newValue) {
+        case 0: navigate('/account'); break;
+        case 1: navigate('/withdrawal'); break;
+      }
+      return;
+    }
+    
+    // Admin navigation - corrected mapping based on actual DOM behavior
     switch (newValue) {
-      case 0:
-        navigate('/account');
-        break;
-      case 1:
-        navigate('/withdrawal');
-        break;
-      case 2:
-        if (isAdmin) navigate('/admin');
-        break;
-      case 3:
-        if (isAdmin) navigate('/admin/requests');
-        break;
-      case 4:
-        if (isAdmin) navigate('/admin/logs');
-        break;
-      default:
-        break;
+      case 0: navigate('/account'); break;        // History
+      case 2: navigate('/admin'); break;          // Admin  
+      case 3: navigate('/admin/requests'); break; // Requests
+      case 4: navigate('/admin/messages'); break; // Messages
     }
   };
 
@@ -77,6 +114,21 @@ export default function BottomNav() {
     handleProfileClose();
   };
 
+  const handleLogs = async () => {
+    try {
+      // Mark security events as viewed when admin opens logs page
+      if (unviewedSecurityEventsCount > 0) {
+        await auditService.markSecurityEventsAsViewed();
+        setUnviewedSecurityEventsCount(0);
+      }
+    } catch (error) {
+      console.error('Failed to mark security events as viewed:', error);
+    }
+    
+    navigate('/admin/logs');
+    handleProfileClose();
+  };
+
   const handleLogout = async () => {
     await signOut();
     handleProfileClose();
@@ -91,8 +143,13 @@ export default function BottomNav() {
           onChange={handleNavigation}
           sx={{ bgcolor: 'background.paper', position: 'relative' }}
         >
+          {/* Always render History first - Index 0 */}
           <BottomNavigationAction label="History" icon={<ReceiptLongIcon />} />
-          <BottomNavigationAction label="Withdraw" icon={<AttachMoneyIcon />} />
+          
+          {/* Regular users get Withdraw - Index 1 */}
+          {!isAdmin && <BottomNavigationAction label="Withdraw" icon={<AttachMoneyIcon />} />}
+          
+          {/* Admin users get Admin tabs - Indices 1, 2, 3 */}
           {isAdmin && <BottomNavigationAction label="Admin" icon={<AdminPanelSettingsIcon />} />}
           {isAdmin && (
             <BottomNavigationAction 
@@ -104,7 +161,7 @@ export default function BottomNav() {
               } 
             />
           )}
-          {isAdmin && <BottomNavigationAction label="Logs" icon={<BarChartIcon />} />}
+          {isAdmin && <BottomNavigationAction label="Messages" icon={<EmailIcon />} />}
           
           <Avatar 
             alt="Profile"
@@ -132,6 +189,22 @@ export default function BottomNav() {
         transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
         <MenuItem onClick={handleProfile}>My Profile</MenuItem>
+        {isAdmin && (
+          <MenuItem onClick={handleLogs}>
+            <Box display="flex" alignItems="center" justifyContent="space-between" width="100%">
+              Admin Logs
+              {unviewedSecurityEventsCount > 0 && (
+                <Badge 
+                  badgeContent={unviewedSecurityEventsCount} 
+                  color="warning"
+                  sx={{ ml: 1 }}
+                >
+                  <Box />
+                </Badge>
+              )}
+            </Box>
+          </MenuItem>
+        )}
         <MenuItem onClick={handleAbout}>About</MenuItem>
         <MenuItem onClick={handleLogout}>Logout</MenuItem>
       </Menu>

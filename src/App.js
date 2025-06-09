@@ -15,6 +15,8 @@ import AdminPanel from './pages/AdminPanel';
 import AdminLogs from './pages/AdminLogs';
 import WithdrawalPage from './pages/WithdrawalPage';
 import AdminRequestsPage from './pages/AdminRequestsPage';
+import MessagesPage from './pages/MessagesPage';
+import ForceUpdatePage from './pages/ForceUpdatePage';
 import Profile from './pages/Profile';
 import About from './pages/About';
 import BottomNav from './components/BottomNav';
@@ -78,12 +80,16 @@ function App() {
               <Route path="/admin/logs" element={
                 isAuthenticated && isAdmin ? <AdminLogs /> : <Navigate to="/" replace />
               } />
+              <Route path="/admin/messages" element={
+                isAuthenticated && isAdmin ? <MessagesPage /> : <Navigate to="/" replace />
+              } />
               <Route path="/profile" element={
                 isAuthenticated ? <Profile /> : <Navigate to="/" replace />
               } />
               <Route path="/about" element={
                 isAuthenticated ? <About /> : <Navigate to="/" replace />
               } />
+              <Route path="/forceupdate" element={<ForceUpdatePage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
