@@ -1,4 +1,4 @@
-import { collection, addDoc, query, orderBy, limit, where, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, limit, where, getDocs, Timestamp, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 
 /**
@@ -35,7 +35,9 @@ export const AUDIT_EVENTS = {
   
   // Security events
   UNAUTHORIZED_ACCESS_ATTEMPT: 'unauthorized_access_attempt',
-  PERMISSION_DENIED: 'permission_denied'
+  PERMISSION_DENIED: 'permission_denied',
+  LOGIN_DENIED: 'login_denied',
+  ACCOUNT_MERGED: 'account_merged'
 };
 
 /**
@@ -214,6 +216,19 @@ export const logAdminEvent = async (eventType, user, details = {}, target = null
 };
 
 /**
+ * Log security events
+ */
+export const logSecurityEvent = async (eventType, user, details = {}) => {
+  return logAuditEvent(eventType, user, {
+    ...details,
+    security_event: true,
+    severity: eventType === AUDIT_EVENTS.LOGIN_DENIED ? 'warn' : 'info',
+    requires_admin_review: true,
+    viewed_by_admin: false
+  });
+};
+
+/**
  * Log profile update events
  */
 export const logProfileEvent = async (eventType, user, changes = {}) => {
@@ -330,6 +345,63 @@ export const getAuditLogs = async (filters = {}, limitCount = 100) => {
 };
 
 /**
+ * Get count of unviewed security events for badge display
+ */
+export const getUnviewedSecurityEventsCount = async () => {
+  try {
+    const q = query(
+      collection(db, 'audit_logs'),
+      where('security_event', '==', true),
+      where('viewed_by_admin', '==', false)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.length;
+  } catch (error) {
+    console.error('Error fetching unviewed security events count:', error);
+    return 0;
+  }
+};
+
+/**
+ * Mark security events as viewed by admin
+ */
+export const markSecurityEventsAsViewed = async (eventIds = []) => {
+  try {
+    // If no specific event IDs provided, mark all unviewed security events as viewed
+    if (eventIds.length === 0) {
+      const q = query(
+        collection(db, 'audit_logs'),
+        where('security_event', '==', true),
+        where('viewed_by_admin', '==', false)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      eventIds = querySnapshot.docs.map(doc => doc.id);
+    }
+
+    // Update all events in batches (to handle potential large numbers)
+    const batchSize = 500;
+    for (let i = 0; i < eventIds.length; i += batchSize) {
+      const batch = eventIds.slice(i, i + batchSize);
+      const promises = batch.map(eventId => 
+        updateDoc(doc(db, 'audit_logs', eventId), { 
+          viewed_by_admin: true,
+          viewed_at: Timestamp.fromDate(new Date())
+        })
+      );
+      await Promise.all(promises);
+    }
+
+    console.log(`Marked ${eventIds.length} security events as viewed`);
+    return eventIds.length;
+  } catch (error) {
+    console.error('Error marking security events as viewed:', error);
+    throw error;
+  }
+};
+
+/**
  * Get audit log statistics (admin only)
  */
 export const getAuditStats = async (timeframe = '24h') => {
@@ -351,6 +423,7 @@ export const getAuditStats = async (timeframe = '24h') => {
       unique_users: new Set(logs.map(log => log.user_id)).size,
       unique_ips: new Set(logs.map(log => log.ip_address)).size,
       event_types: {},
+      unviewed_security_events: logs.filter(log => log.security_event && !log.viewed_by_admin).length,
       timeframe: 'All Time',
       start_date: null,
       end_date: now
@@ -385,8 +458,11 @@ export default {
   logAuthEvent,
   logTransactionEvent,
   logAdminEvent,
+  logSecurityEvent,
   logProfileEvent,
   getAuditLogs,
   getAuditStats,
+  getUnviewedSecurityEventsCount,
+  markSecurityEventsAsViewed,
   AUDIT_EVENTS
 };

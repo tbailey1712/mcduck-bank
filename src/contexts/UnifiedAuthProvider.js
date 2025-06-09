@@ -55,6 +55,22 @@ export const UnifiedAuthProvider = ({ children }) => {
   }, [handleAuthStateChange]);
 
   // Auth actions
+  const signInWithGoogle = useCallback(async () => {
+    try {
+      setAuthState(prevState => ({ ...prevState, loading: true, error: null }));
+      await unifiedAuthService.signInWithGoogle();
+      // Auth state will be updated via the listener
+    } catch (error) {
+      console.error('Sign in error:', error);
+      setAuthState(prevState => ({
+        ...prevState,
+        loading: false,
+        error: { message: error.message }
+      }));
+      throw error; // Re-throw for component error handling
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     try {
       await unifiedAuthService.signOut();
@@ -100,6 +116,7 @@ export const UnifiedAuthProvider = ({ children }) => {
     canAccessResource,
     
     // Actions
+    signInWithGoogle,
     signOut,
     updateActivity,
     
