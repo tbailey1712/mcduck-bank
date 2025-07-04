@@ -66,10 +66,8 @@ export default function BottomNav() {
     }
     
     // Admin navigation - corrected indices based on actual DOM behavior:
-    // History(0), Admin(2), Requests(3), Messages(4)
+    // History(0), Admin(2), Requests(3)
     switch (path) {
-      case '/admin/messages':
-        return 4;
       case '/admin/requests':
         return 3;
       case '/admin':
@@ -96,7 +94,6 @@ export default function BottomNav() {
       case 0: navigate('/account'); break;        // History
       case 2: navigate('/admin'); break;          // Admin  
       case 3: navigate('/admin/requests'); break; // Requests
-      case 4: navigate('/admin/messages'); break; // Messages
     }
   };
 
@@ -129,6 +126,11 @@ export default function BottomNav() {
     handleProfileClose();
   };
 
+  const handleMessages = () => {
+    navigate('/admin/messages');
+    handleProfileClose();
+  };
+
   const handleLogout = async () => {
     await signOut();
     handleProfileClose();
@@ -149,7 +151,7 @@ export default function BottomNav() {
           {/* Regular users get Withdraw - Index 1 */}
           {!isAdmin && <BottomNavigationAction label="Withdraw" icon={<AttachMoneyIcon />} />}
           
-          {/* Admin users get Admin tabs - Indices 1, 2, 3 */}
+          {/* Admin users get Admin tabs - Indices 1, 2 */}
           {isAdmin && <BottomNavigationAction label="Admin" icon={<AdminPanelSettingsIcon />} />}
           {isAdmin && (
             <BottomNavigationAction 
@@ -161,11 +163,10 @@ export default function BottomNav() {
               } 
             />
           )}
-          {isAdmin && <BottomNavigationAction label="Messages" icon={<EmailIcon />} />}
           
           <Avatar 
             alt="Profile"
-            src={user?.photoURL || "/user.jpg"}
+            src={user?.photoURL}
             sx={{ 
               position: 'absolute', 
               right: 16, 
@@ -177,7 +178,9 @@ export default function BottomNav() {
               borderColor: 'primary.main'
             }}
             onClick={(e) => setProfileAnchor(e.currentTarget)}
-          />
+          >
+            {!user?.photoURL && (user?.displayName?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U')}
+          </Avatar>
         </BottomNavigation>
       </Paper>
 
@@ -205,6 +208,7 @@ export default function BottomNav() {
             </Box>
           </MenuItem>
         )}
+        {isAdmin && <MenuItem onClick={handleMessages}>Messages</MenuItem>}
         <MenuItem onClick={handleAbout}>About</MenuItem>
         <MenuItem onClick={handleLogout}>Logout</MenuItem>
       </Menu>

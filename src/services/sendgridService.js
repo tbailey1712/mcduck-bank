@@ -58,7 +58,7 @@ class SendGridService {
           processedValue = String(value || '');
       }
 
-      processedHtml = processedHtml.replace(placeholder, processedValue);
+      processedHtml = processedHtml.replace(placeholder, sanitizeInput(processedValue));
     });
 
     // Clean up any remaining placeholders

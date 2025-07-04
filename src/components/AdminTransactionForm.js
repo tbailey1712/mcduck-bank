@@ -17,7 +17,6 @@ import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import ValidatedTextField from './ValidatedTextField';
 import {
   validatePositiveNumber,
-  validateSafeText,
   validateRequired,
   validateForm
 } from '../utils/validation';
@@ -54,11 +53,11 @@ const AdminTransactionForm = ({
       })
     ],
     description: [
-      (value) => validateSafeText(value, { 
-        min: 1, 
-        max: 200, 
-        required: false 
-      })
+      (value) => {
+        if (!value || value.trim() === '') return null; // Optional field
+        if (value.length > 200) return 'Description must be no more than 200 characters';
+        return null; // Allow any characters for descriptions
+      }
     ]
   };
 
@@ -229,14 +228,17 @@ const AdminTransactionForm = ({
         </Grid>
         
         <Grid item xs={12} sm={6}>
-          <ValidatedTextField
+          <TextField
             label="Description (Optional)"
             value={formData.description}
             onChange={handleInputChange('description')}
-            validator={validationRules.description[0]}
             disabled={loading || disabled}
             placeholder="Optional description for this transaction"
             helperText="Maximum 200 characters"
+            fullWidth
+            inputProps={{
+              maxLength: 200
+            }}
           />
         </Grid>
         

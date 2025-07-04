@@ -63,7 +63,7 @@ export const config = {
   // UI settings
   ui: {
     navbar: {
-      showBuildNumber: getBooleanEnv('REACT_APP_SHOW_BUILD_NUMBER', true),
+      showBuildNumber: getBooleanEnv('REACT_APP_SHOW_BUILD_NUMBER', false),
       showNavigation: getBooleanEnv('REACT_APP_SHOW_NAVBAR_NAVIGATION', false),
     }
   }

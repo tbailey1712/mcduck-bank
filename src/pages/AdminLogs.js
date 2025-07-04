@@ -64,7 +64,7 @@ const AdminLogs = () => {
   const [filters, setFilters] = useState({
     event_type: '',
     user_id: '',
-    timeframe: '30d',
+    timeframe: 'all',
     search: ''
   });
 
@@ -119,8 +119,10 @@ const AdminLogs = () => {
         return subDays(now, 7);
       case '30d':
         return subDays(now, 30);
+      case 'all':
+        return null; // No date filter - show all logs
       default:
-        return subDays(now, 1);
+        return null; // Default to all logs
     }
   };
 
@@ -142,6 +144,16 @@ const AdminLogs = () => {
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
     setPage(0); // Reset to first page
+  };
+
+  const handleClearFilters = () => {
+    setFilters({
+      event_type: '',
+      user_id: '',
+      timeframe: 'all',
+      search: ''
+    });
+    setPage(0);
   };
 
   // Get event type color
@@ -559,9 +571,19 @@ const AdminLogs = () => {
 
       {/* Filters */}
       <Paper sx={{ p: 3, mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-          <FilterIcon sx={{ mr: 1 }} />
-          <Typography variant="h6">Filters</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <FilterIcon sx={{ mr: 1 }} />
+            <Typography variant="h6">Filters</Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={handleClearFilters}
+            startIcon={<CloseIcon />}
+          >
+            Clear Filters
+          </Button>
         </Box>
         
         <Grid container spacing={2}>
@@ -573,6 +595,7 @@ const AdminLogs = () => {
                 label="Timeframe"
                 onChange={(e) => handleFilterChange('timeframe', e.target.value)}
               >
+                <MenuItem value="all">All Time</MenuItem>
                 <MenuItem value="1h">Last Hour</MenuItem>
                 <MenuItem value="24h">Last 24 Hours</MenuItem>
                 <MenuItem value="7d">Last 7 Days</MenuItem>

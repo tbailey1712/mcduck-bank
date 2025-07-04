@@ -123,8 +123,8 @@ class NotificationService {
     const title = payload.notification?.title || 'McDuck Bank';
     const options = {
       body: payload.notification?.body || 'You have a new notification',
-      icon: '/logo192.png',
-      badge: '/logo192.png',
+      icon: '/logo-192x192.png',
+      badge: '/logo-192x192.png',
       tag: 'mcduck-bank-foreground',
       data: payload.data,
       requireInteraction: false, // Less intrusive
@@ -163,8 +163,8 @@ class NotificationService {
     if (Notification.permission === 'granted') {
       const notification = new Notification('McDuck Bank - Test Notification', {
         body: 'Notifications are working! You will receive alerts for account activities.',
-        icon: '/logo192.png',
-        badge: '/logo192.png',
+        icon: '/logo-192x192.png',
+        badge: '/logo-192x192.png',
         tag: 'mcduck-test',
         requireInteraction: false,
         silent: false

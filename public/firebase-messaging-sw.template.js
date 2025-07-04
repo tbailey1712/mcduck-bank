@@ -1,18 +1,18 @@
-// Firebase Messaging Service Worker
-// This file must be in the public directory to work properly
+// Firebase Messaging Service Worker Template
+// This file gets processed during build to replace environment variables
 
 // Import Firebase scripts (using CDN for service worker)
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js');
 
-// Firebase configuration - same as your main app config
+// Firebase configuration - populated from environment variables during build
 const firebaseConfig = {
-  apiKey: "AIzaSyCS7vJrD3hD8_1rPJ2NcRLo9DqyhlzFaJ0",
-  authDomain: "mcduck-bank-2025.firebaseapp.com",
-  projectId: "mcduck-bank-2025",
-  storageBucket: "mcduck-bank-2025.appspot.com",
-  messagingSenderId: "110215067391",
-  appId: "1:110215067391:web:0cbc2a0e65f2b79fd03eca"
+  apiKey: "%REACT_APP_FIREBASE_API_KEY%",
+  authDomain: "%REACT_APP_FIREBASE_AUTH_DOMAIN%",
+  projectId: "%REACT_APP_FIREBASE_PROJECT_ID%",
+  storageBucket: "%REACT_APP_FIREBASE_STORAGE_BUCKET%",
+  messagingSenderId: "%REACT_APP_FIREBASE_MESSAGING_SENDER_ID%",
+  appId: "%REACT_APP_FIREBASE_APP_ID%"
 };
 
 // Initialize Firebase
@@ -23,18 +23,18 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   console.log('💬 Background message received:', payload);
 
-  const notificationTitle = payload.notification?.title || 'McDuck Bank';
+  const notificationTitle = payload.notification?.title || process.env.REACT_APP_BANK_NAME || 'Bank Notification';
   const notificationOptions = {
     body: payload.notification?.body || 'You have a new notification',
-    icon: '/logo-192x192.png',
-    badge: '/logo-192x192.png',
-    tag: 'mcduck-bank-notification',
+    icon: '/icon_192x192.png',
+    badge: '/icon_96x96.png',
+    tag: 'bank-notification',
     data: payload.data,
     actions: [
       {
         action: 'open',
         title: 'View Details',
-        icon: '/logo-192x192.png'
+        icon: '/icon_192x192.png'
       },
       {
         action: 'dismiss',
@@ -63,7 +63,7 @@ self.addEventListener('notificationclick', (event) => {
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       // If app is already open, focus it
       for (const client of clientList) {
-        if (client.url.includes('mcduck-bank') && 'focus' in client) {
+        if (client.url.includes(window.location.hostname) && 'focus' in client) {
           return client.focus();
         }
       }

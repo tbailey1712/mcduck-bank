@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
 import config from './environment';
 
 // Use validated configuration from environment utility
@@ -15,9 +16,10 @@ try {
   throw new Error('Firebase initialization failed. Please check your configuration.');
 }
 
-// Initialize Auth and Firestore
+// Initialize Auth, Firestore, and Functions
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const functions = getFunctions(app, 'us-central1');
 
 // Set Firebase Auth persistence for PWAs
 setPersistence(auth, browserLocalPersistence).catch((error) => {
@@ -35,6 +37,11 @@ if (config.isDevelopment && config.development.useEmulator) {
     // Connect to Firestore emulator
     if (!db._delegate._settings?.host?.includes('localhost')) {
       connectFirestoreEmulator(db, 'localhost', 8080);
+    }
+    
+    // Connect to Functions emulator
+    if (!functions._delegate._options?.customDomain?.includes('localhost')) {
+      connectFunctionsEmulator(functions, 'localhost', 5001);
     }
     
     if (config.development.enableDebug) {

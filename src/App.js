@@ -21,6 +21,7 @@ import Profile from './pages/Profile';
 import About from './pages/About';
 import BottomNav from './components/BottomNav';
 import Navbar from './components/Navbar';
+import BuildInfo from './components/BuildInfo';
 
 function App() {
   const { isAuthenticated, isAdmin, loading } = useUnifiedAuth();
@@ -94,6 +95,7 @@ function App() {
             </Routes>
           </div>
           {isAuthenticated && <BottomNav />}
+          <BuildInfo />
         </Router>
       </ThemeProvider>
     </ErrorBoundary>

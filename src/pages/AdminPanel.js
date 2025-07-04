@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 import { Box, Container, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Paper, Card, CardContent, Grid, Alert, InputAdornment, useTheme, useMediaQuery, Stack, CircularProgress, FormControlLabel, Switch, Divider } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import EmailIcon from '@mui/icons-material/Email';
 import { collection, query, getDocs, addDoc, doc, updateDoc, deleteDoc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 import { formatCurrency } from '../utils/formatUtils';
@@ -14,6 +15,7 @@ import serverNotificationService from '../services/serverNotificationService';
 import auditService, { AUDIT_EVENTS } from '../services/auditService';
 import withdrawalDepositService from '../services/withdrawalDepositService';
 import withdrawalTaskService from '../services/withdrawalTaskService';
+import adminCloudFunctions from '../services/adminCloudFunctions';
 
 const AdminPanel = () => {
   const { user, isAdmin, updateActivity } = useUnifiedAuth();
@@ -234,6 +236,36 @@ const AdminPanel = () => {
     fetchSystemConfig();
   }, [fetchCustomers]);
 
+  // Admin setup handler
+  const handleSetupAdmin = async () => {
+    try {
+      setJobsLoading(true);
+      setJobError('');
+      setJobResults(null);
+
+      console.log('🚀 Setting up admin privileges...');
+      
+      const results = await adminCloudFunctions.setupAdmin();
+      
+      setJobResults({
+        type: 'setup',
+        message: results.message,
+        success: true
+      });
+
+      console.log('✅ Admin setup completed successfully');
+      
+      // Show message about refreshing
+      alert('Admin privileges set! Please refresh your browser for changes to take effect.');
+      
+    } catch (error) {
+      console.error('❌ Error calling setupAdmin function:', error);
+      setJobError(adminCloudFunctions.getErrorMessage(error));
+    } finally {
+      setJobsLoading(false);
+    }
+  };
+
   // Cloud Function job handlers
   const handleCalculateInterest = async () => {
     try {
@@ -241,21 +273,10 @@ const AdminPanel = () => {
       setJobError('');
       setJobResults(null);
 
-      // Call the cloud function
-      const functionUrl = `${process.env.REACT_APP_FUNCTIONS_URL || 'https://us-central1-' + process.env.REACT_APP_PROJECT_ID + '.cloudfunctions.net'}/calculateInterest`;
+      console.log('🚀 Starting interest calculation from admin panel...');
       
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Cloud function failed: ${response.status}`);
-      }
-
-      const results = await response.json();
+      // Call the secure cloud function using Firebase callable functions
+      const results = await adminCloudFunctions.calculateInterest();
       
       setJobResults({
         type: 'interest',
@@ -278,11 +299,42 @@ const AdminPanel = () => {
         console.warn('Failed to log interest calculation audit event:', auditError);
       }
 
+      console.log('✅ Interest calculation completed successfully');
+      
       // Refresh customer data to show updated balances
       await fetchCustomers();
     } catch (error) {
-      console.error('Error calling interest calculation function:', error);
-      setJobError(`Failed to calculate interest: ${error.message}`);
+      console.error('❌ Error calling interest calculation function:', error);
+      setJobError(adminCloudFunctions.getErrorMessage(error));
+    } finally {
+      setJobsLoading(false);
+    }
+  };
+
+  const handleSendIndividualStatement = async (customerEmail) => {
+    try {
+      setJobsLoading(true);
+      setJobError('');
+      setJobResults(null);
+
+      console.log(`🚀 Sending statement to ${customerEmail}...`);
+      
+      // Call the secure cloud function for individual customer
+      const results = await adminCloudFunctions.sendMonthlyStatements({ customerEmail });
+      
+      setJobResults({
+        type: 'individual_statement',
+        customerEmail: customerEmail,
+        totalProcessed: results.results.totalProcessed,
+        emailsSent: results.results.emailsSent,
+        emailErrors: results.results.emailErrors,
+        errors: results.results.errors
+      });
+
+      console.log(`✅ Statement sent to ${customerEmail} successfully`);
+    } catch (error) {
+      console.error(`❌ Error sending statement to ${customerEmail}:`, error);
+      setJobError(adminCloudFunctions.getErrorMessage(error));
     } finally {
       setJobsLoading(false);
     }
@@ -294,21 +346,10 @@ const AdminPanel = () => {
       setJobError('');
       setJobResults(null);
 
-      // Call the cloud function
-      const functionUrl = `${process.env.REACT_APP_FUNCTIONS_URL || 'https://us-central1-' + process.env.REACT_APP_PROJECT_ID + '.cloudfunctions.net'}/sendMonthlyStatements`;
+      console.log('🚀 Starting monthly statements generation from admin panel...');
       
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Cloud function failed: ${response.status}`);
-      }
-
-      const results = await response.json();
+      // Call the secure cloud function using Firebase callable functions
+      const results = await adminCloudFunctions.sendMonthlyStatements();
       
       setJobResults({
         type: 'statements',
@@ -333,9 +374,11 @@ const AdminPanel = () => {
       } catch (auditError) {
         console.warn('Failed to log statements generation audit event:', auditError);
       }
+      
+      console.log('✅ Monthly statements generation completed successfully');
     } catch (error) {
-      console.error('Error calling statements generation function:', error);
-      setJobError(`Failed to generate statements: ${error.message}`);
+      console.error('❌ Error calling statements generation function:', error);
+      setJobError(adminCloudFunctions.getErrorMessage(error));
     } finally {
       setJobsLoading(false);
     }
@@ -852,7 +895,9 @@ const AdminPanel = () => {
               onClose={() => setJobResults(null)}
             >
               <Typography variant="subtitle2">
-                {jobResults.type === 'interest' ? 'Interest Calculation' : 'Statement Generation'} Completed
+                {jobResults.type === 'interest' ? 'Interest Calculation' : 
+                 jobResults.type === 'individual_statement' ? `Individual Statement for ${jobResults.customerEmail}` :
+                 'Statement Generation'} Completed
               </Typography>
               <Typography variant="body2">
                 Processed: {jobResults.totalProcessed} accounts
@@ -862,7 +907,7 @@ const AdminPanel = () => {
                     <br />Already Paid This Month: {jobResults.alreadyPaid || 0}
                   </>
                 )}
-                {jobResults.type === 'statements' && (
+                {(jobResults.type === 'statements' || jobResults.type === 'individual_statement') && (
                   <>
                     <br />Emails Sent: {jobResults.emailsSent || 0}
                     {jobResults.emailErrors > 0 && (
@@ -870,11 +915,6 @@ const AdminPanel = () => {
                         <br />Email Errors: {jobResults.emailErrors}
                       </>
                     )}
-                  </>
-                )}
-                {jobResults.type === 'interest' && jobResults.emailsSent && (
-                  <>
-                    <br />Notification Emails Sent: {jobResults.emailsSent}
                   </>
                 )}
                 {jobResults.errors?.length > 0 && (
@@ -890,6 +930,22 @@ const AdminPanel = () => {
             <Grid item xs={12} sm={6} md={4}>
               <Button
                 variant="contained"
+                color="warning"
+                onClick={handleSetupAdmin}
+                disabled={jobsLoading}
+                fullWidth
+                sx={{ mb: 1 }}
+              >
+                {jobsLoading ? 'Processing...' : 'Setup Admin Privileges'}
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                One-time setup to grant admin privileges to current user
+              </Typography>
+            </Grid>
+            
+            <Grid item xs={12} sm={6} md={4}>
+              <Button
+                variant="contained"
                 color="primary"
                 onClick={handleCalculateInterest}
                 disabled={jobsLoading}
@@ -899,7 +955,7 @@ const AdminPanel = () => {
                 {jobsLoading ? 'Processing...' : 'Calculate Monthly Interest'}
               </Button>
               <Typography variant="caption" color="text.secondary">
-                Pays interest to all accounts and sends notification emails
+                Pays interest to all eligible accounts (notifications sent via monthly statements)
               </Typography>
             </Grid>
             
@@ -957,8 +1013,17 @@ const AdminPanel = () => {
                       size="small"
                       onClick={() => handleViewTransactions(customer.user_id)}
                       title="View Transactions"
+                      sx={{ mr: 1 }}
                     >
                       <VisibilityIcon />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleSendIndividualStatement(customer.email)}
+                      title="Send Monthly Statement"
+                      disabled={jobsLoading || !customer.email}
+                    >
+                      <EmailIcon />
                     </IconButton>
                   </Box>
                   <Typography variant="caption" color="text.secondary">
@@ -1011,8 +1076,17 @@ const AdminPanel = () => {
                         size="small"
                         onClick={() => handleViewTransactions(customer.user_id)}
                         title="View Transactions"
+                        sx={{ mr: 1 }}
                       >
                         <VisibilityIcon />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleSendIndividualStatement(customer.email)}
+                        title="Send Monthly Statement"
+                        disabled={jobsLoading || !customer.email}
+                      >
+                        <EmailIcon />
                       </IconButton>
                     </TableCell>
                   </TableRow>

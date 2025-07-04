@@ -5,6 +5,24 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "transaction_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "timestamp",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
           "fieldPath": "user_id",
           "order": "ASCENDING"
         },

@@ -35,8 +35,8 @@ class ServerNotificationService {
             const registration = await navigator.serviceWorker.ready;
             await registration.showNotification(notification.title, {
               body: notification.body,
-              icon: '/logo192.png',
-              badge: '/logo192.png',
+              icon: '/logo-192x192.png',
+              badge: '/logo-192x192.png',
               tag: `mcduck-pending-${notification.id}`,
               data: notification.data,
               requireInteraction: false
@@ -342,8 +342,8 @@ class ServerNotificationService {
           console.log('📤 Attempting to show notification via service worker...');
           await registration.showNotification(notification.title, {
             body: notification.body,
-            icon: '/logo192.png',
-            badge: '/logo192.png',
+            icon: '/logo-192x192.png',
+            badge: '/logo-192x192.png',
             tag: `mcduck-${notification.type}`,
             data: notification.data,
             requireInteraction: false,
@@ -375,8 +375,8 @@ class ServerNotificationService {
         if ('Notification' in window && Notification.permission === 'granted') {
           const browserNotification = new Notification(notification.title, {
             body: notification.body,
-            icon: '/logo192.png',
-            badge: '/logo192.png',
+            icon: '/logo-192x192.png',
+            badge: '/logo-192x192.png',
             tag: `mcduck-${notification.type}`,
             data: notification.data,
             requireInteraction: false

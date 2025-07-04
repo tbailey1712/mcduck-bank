@@ -5,13 +5,43 @@
   "icons": [
     {
       "src": "favicon.ico",
-      "sizes": "58x58",
-      "type": "image/png"
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "icon-16x16.png",
+      "type": "image/png",
+      "sizes": "16x16",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-32x32.png",
+      "type": "image/png",
+      "sizes": "32x32",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-48x48.png",
+      "type": "image/png",
+      "sizes": "48x48",
+      "purpose": "any"
     },
     {
       "src": "icon-72x72.png",
       "type": "image/png",
       "sizes": "72x72",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-96x96.png",
+      "type": "image/png",
+      "sizes": "96x96",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-128x128.png",
+      "type": "image/png",
+      "sizes": "128x128",
       "purpose": "any"
     },
     {
@@ -27,7 +57,7 @@
       "purpose": "any"
     },
     {
-      "src": "logo192.png",
+      "src": "logo-192x192.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any maskable"
@@ -39,7 +69,7 @@
       "purpose": "any"
     },
     {
-      "src": "logo512.png",
+      "src": "logo-512x512.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "maskable"
@@ -54,7 +84,7 @@
   "categories": ["finance", "business"],
   "screenshots": [
     {
-      "src": "logo512.png",
+      "src": "logo-512x512.png",
       "sizes": "512x512",
       "type": "image/png"
     }

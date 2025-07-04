@@ -11,7 +11,7 @@ const VALIDATION_PATTERNS = {
   positiveNumber: /^\d*\.?\d+$/,
   wholeNumber: /^\d+$/,
   alphanumeric: /^[a-zA-Z0-9\s]+$/,
-  safeText: /^[a-zA-Z0-9\s.,!?-]+$/, // Safe characters for descriptions
+  safeText: /^[a-zA-Z0-9\s.,!?'\-()&$@#%:;]+$/, // Safe characters for descriptions - expanded to allow more punctuation
 };
 
 // Common validation messages
@@ -41,12 +41,12 @@ export const sanitizeInput = (input, options = {}) => {
   const {
     allowHtml = false,
     stripTags = true,
-    preserveWhitespace = false
+    preserveWhitespace = true // Changed default to preserve spaces in text
   } = options;
   
   let sanitized = input;
   
-  // Trim whitespace unless preserving
+  // Only trim leading/trailing whitespace, not internal spaces
   if (!preserveWhitespace) {
     sanitized = sanitized.trim();
   }

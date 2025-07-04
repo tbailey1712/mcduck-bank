@@ -155,7 +155,12 @@ export const logAuditEvent = async (eventType, user, details = {}, target = null
     
     const docRef = await addDoc(collection(db, 'audit_logs'), auditLog);
     
-    console.log(`✅ Audit log created successfully: ${eventType}`, { id: docRef.id });
+    console.log(`✅ Audit log created successfully: ${eventType}`, { 
+      id: docRef.id, 
+      event: eventType, 
+      user: user?.email, 
+      timestamp: new Date().toISOString() 
+    });
     
     return docRef.id;
   } catch (error) {
@@ -245,7 +250,7 @@ export const logProfileEvent = async (eventType, user, changes = {}) => {
  */
 export const getAuditLogs = async (filters = {}, limitCount = 100) => {
   try {
-    console.log('🔍 Getting audit logs with filters:', filters);
+    console.log('🔍 Getting audit logs with filters:', filters, 'limit:', limitCount);
     
     let q = collection(db, 'audit_logs');
     
@@ -260,8 +265,8 @@ export const getAuditLogs = async (filters = {}, limitCount = 100) => {
       q = query(q, where('event_type', '==', filters.event_type));
     }
     
-    // Temporarily disable start_date filter for debugging
-    if (filters.start_date && false) {
+    // Add start_date filter if provided
+    if (filters.start_date !== null && filters.start_date !== undefined) {
       console.log('📝 Adding start_date filter:', filters.start_date);
       q = query(q, where('timestamp', '>=', Timestamp.fromDate(filters.start_date)));
     }
@@ -271,13 +276,21 @@ export const getAuditLogs = async (filters = {}, limitCount = 100) => {
       q = query(q, where('timestamp', '<=', Timestamp.fromDate(filters.end_date)));
     }
     
-    // Just limit without ordering - we'll sort after processing due to mixed field names
-    q = query(q, limit(limitCount));
+    // Always use JavaScript sorting for now to avoid composite index issues
+    // Fetch extra documents and sort in JavaScript for consistent results
+    const fetchLimit = Math.max(limitCount * 3, 300); // Fetch at least 300 docs to ensure we get recent ones
+    q = query(q, limit(fetchLimit));
+    
+    console.log(`📋 Fetching ${fetchLimit} documents (filters applied: ${filters.user_id ? 'user_id ' : ''}${filters.event_type ? 'event_type ' : ''}${filters.start_date ? 'start_date ' : ''}${filters.end_date ? 'end_date ' : ''})`)
     
     console.log('🔎 Executing Firestore query...');
     const querySnapshot = await getDocs(q);
     
     console.log('📊 Query returned', querySnapshot.docs.length, 'documents');
+    
+    // Debug: log the IDs of returned documents
+    const docIds = querySnapshot.docs.map(doc => doc.id);
+    console.log('📋 Document IDs returned:', docIds);
     
     const logs = querySnapshot.docs.map(doc => {
       const data = doc.data();
@@ -336,8 +349,11 @@ export const getAuditLogs = async (filters = {}, limitCount = 100) => {
     // Sort by timestamp after processing (since we can't reliably order in Firestore with mixed field names)
     logs.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
     
-    console.log('✅ Returning', logs.length, 'processed logs, sorted by timestamp');
-    return logs;
+    // Apply limit after sorting since we always fetch extra documents
+    const finalLogs = logs.slice(0, limitCount);
+    
+    console.log('✅ Returning', finalLogs.length, 'processed logs, sorted by timestamp');
+    return finalLogs;
   } catch (error) {
     console.error('Error fetching audit logs:', error);
     throw error;

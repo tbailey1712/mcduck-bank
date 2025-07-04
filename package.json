@@ -17,6 +17,7 @@
     "@testing-library/user-event": "^13.5.0",
     "date-fns": "^4.1.0",
     "dompurify": "^3.2.6",
+    "firebase": "^11.10.0",
     "firebase-admin": "^13.4.0",
     "firebase-messaging": "^1.0.6",
     "react": "^19.1.0",
@@ -30,10 +31,10 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "craco start",
     "prebuild": "node scripts/generate-build-number.js",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
+    "build": "craco build",
+    "test": "craco test",
     "test:watch": "react-scripts test --watchAll",
     "test:coverage": "react-scripts test --coverage --watchAll=false",
     "test:ci": "react-scripts test --coverage --watchAll=false --passWithNoTests",
@@ -68,6 +69,7 @@
     ]
   },
   "devDependencies": {
+    "@craco/craco": "^7.1.0",
     "jest-environment-jsdom": "^30.0.0-beta.3",
     "msw": "^2.8.7",
     "prop-types": "^15.8.1"

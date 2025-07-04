@@ -38,9 +38,9 @@ const BuildInfo = React.memo(({ showDetailed = false }) => {
   return (
     <Box sx={{ 
       position: 'fixed', 
-      bottom: 16, 
+      bottom: 96, // Position above bottom navigation (which is ~80px tall)
       right: 16,
-      zIndex: 1000
+      zIndex: 1000 // Above bottom navigation but below app bar
     }}>
       <Typography 
         variant="caption" 

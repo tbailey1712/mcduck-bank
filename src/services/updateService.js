@@ -120,14 +120,14 @@ class UpdateService {
     const banner = document.createElement('div');
     banner.style.cssText = `
       position: fixed;
-      top: 0;
+      top: 64px;
       left: 0;
       right: 0;
       background: #1976d2;
       color: white;
       padding: 12px 16px;
       text-align: center;
-      z-index: 10000;
+      z-index: 1050;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       font-size: 14px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.2);
