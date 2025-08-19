@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import unifiedAuthService from '../services/unifiedAuthService';
 
@@ -101,7 +101,7 @@ export const UnifiedAuthProvider = ({ children }) => {
   }, []);
 
   // Context value
-  const contextValue = {
+  const contextValue = useMemo(() => ({
     // Core auth state
     ...authState,
     
@@ -124,7 +124,7 @@ export const UnifiedAuthProvider = ({ children }) => {
     isLoading: authState.loading,
     hasError: !!authState.error,
     isReady: !authState.loading && authState.isAuthenticated
-  };
+  }), [authState, getUserPermissions, hasPermission, canAccessResource, signInWithGoogle, signOut, updateActivity]);
 
   return (
     <UnifiedAuthContext.Provider value={contextValue}>

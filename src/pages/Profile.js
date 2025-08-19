@@ -109,7 +109,7 @@ const Profile = () => {
   // Validate phone number format
   const validatePhoneNumber = (phone) => {
     if (!phone) return true; // Optional field
-    const phoneRegex = /^\+?[\d\s\-\(\)]{10,}$/;
+    const phoneRegex = /^\+?[\d\s\-()]{10,}$/;
     return phoneRegex.test(phone.replace(/\s/g, ''));
   };
 

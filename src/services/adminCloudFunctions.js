@@ -7,9 +7,6 @@ import { httpsCallable } from 'firebase/functions';
 import { functions } from '../config/firebaseConfig';
 
 class AdminCloudFunctions {
-  constructor() {
-    // Don't initialize callable functions here - do it lazily when needed
-  }
 
   /**
    * Calculate and distribute interest payments to all accounts

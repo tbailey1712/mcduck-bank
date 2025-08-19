@@ -250,7 +250,6 @@ export const subscribeToTransactions = (userId, onData, options = {}) => {
       limitCount = null
     } = options;
 
-
     if (!userId) {
       onData(handleError(
         new Error('No user ID provided'),
@@ -274,7 +273,6 @@ export const subscribeToTransactions = (userId, onData, options = {}) => {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        
         // Check permissions
         if (authUser && !hasPermission(authUser, userId)) {
           onData(handleError(
@@ -532,7 +530,7 @@ export const processTransactionSummary = (transactions) => {
   return summary;
 };
 
-export default {
+const apiService = {
   getUserData,
   subscribeToUserData,
   getTransactions,
@@ -542,3 +540,5 @@ export default {
   getAllTransactions,
   processTransactionSummary
 };
+
+export default apiService;

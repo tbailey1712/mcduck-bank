@@ -38,13 +38,15 @@ const OptimizedImage = React.memo(({
 
     observerRef.current = createLazyImageObserver(handleIntersection);
 
-    if (observerRef.current && imgRef.current) {
-      observerRef.current.observe(imgRef.current);
+    const currentImgRef = imgRef.current;
+
+    if (observerRef.current && currentImgRef) {
+      observerRef.current.observe(currentImgRef);
     }
 
     return () => {
-      if (observerRef.current && imgRef.current) {
-        observerRef.current.unobserve(imgRef.current);
+      if (observerRef.current && currentImgRef) {
+        observerRef.current.unobserve(currentImgRef);
       }
     };
   }, [lazy, isInView]);

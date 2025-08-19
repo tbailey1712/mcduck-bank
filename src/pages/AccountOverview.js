@@ -11,7 +11,6 @@ import auditService, { AUDIT_EVENTS } from '../services/auditService';
 const AccountOverview = React.memo(() => {
   const {
     userData,
-    transactions,
     transactionSummary,
     loading,
     error,
@@ -19,7 +18,7 @@ const AccountOverview = React.memo(() => {
     refreshData
   } = useAccountData();
   
-  const { user: authUser, isAdmin, updateActivity } = useUnifiedAuth();
+  const { user: authUser, isAdmin } = useUnifiedAuth();
 
   // Memoized transaction handlers for admin users
   const handleTransactionEdit = useCallback(async (transactionData) => {

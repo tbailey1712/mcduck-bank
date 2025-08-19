@@ -10,22 +10,37 @@ const useTransactions = (userId, authUser = null) => {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  // Real-time subscription to transactions
-  const createSubscription = useCallback(() => {
-    if (!userId) return null;
+  
+  // Real-time subscription to transactions - bypass useFirebaseSubscription
+  useEffect(() => {
+    console.log('[useTransactions] useEffect called:', { userId, hasAuthUser: !!authUser });
+    
+    if (!userId) {
+      setTransactions([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     
     setLoading(true);
     
-    return subscribeToTransactions(userId, (updatedTransactions) => {
+    const unsubscribe = subscribeToTransactions(userId, (updatedTransactions) => {
+      console.log('[useTransactions] Subscription callback:', { 
+        userId, 
+        hasTransactions: !!updatedTransactions, 
+        count: updatedTransactions?.length 
+      });
       setTransactions(updatedTransactions || []);
       setError(null);
       setLoading(false);
     }, authUser);
-  }, [userId, authUser]);
 
-  // Setup subscription with cleanup
-  useFirebaseSubscription(createSubscription, [userId]);
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [userId, authUser]);
 
   // Reset when userId changes
   useEffect(() => {

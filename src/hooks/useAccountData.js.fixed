@@ -19,38 +19,22 @@ const useAccountData = () => {
     if (isAdmin && paramUserId) {
       return paramUserId; // Admin viewing specific user
     }
-    // For regular users viewing their own account, use email as document ID
-    // since accounts are keyed on email, not UID
-    return user?.email || user?.uid; // Regular user viewing their own data
-  }, [isAdmin, paramUserId, user?.email, user?.uid]);
+    return user?.uid; // Regular user viewing their own data
+  }, [isAdmin, paramUserId, user?.uid]);
 
   // Check permissions - wait for auth to be ready
   const hasAccess = useMemo(() => {
-    // Wait for auth to be fully ready
-    if (authLoading || !user || !user.uid) {
-      return false;
-    }
-    
-    if (!targetUserId) {
-      return false;
-    }
-    
-    // For regular users viewing their own account (/account route), allow access
-    if (!paramUserId && (targetUserId === user.uid || targetUserId === user.email)) {
-      return true;
-    }
-    
-    // For all other cases (admin accessing other users), use canAccessResource
+    if (authLoading || !user) return false;
+    if (!targetUserId) return false;
     return canAccessResource(targetUserId);
-  }, [authLoading, user, canAccessResource, targetUserId, paramUserId]);
+  }, [authLoading, user, canAccessResource, targetUserId]);
 
   // Only fetch data when we have proper access and targetUserId
   const shouldFetchData = hasAccess && targetUserId && !authLoading;
   
   // Always call hooks (hooks must be at top level)
-  // Use email for user data (accounts keyed by email) but UID for transactions (keyed by user_id)
   const userData = useUserData(shouldFetchData ? targetUserId : null, user);
-  const transactions = useTransactions(shouldFetchData ? user?.uid : null, user);
+  const transactions = useTransactions(shouldFetchData ? targetUserId : null, user);
   const transactionSummary = useTransactionSummary(transactions.transactions);
 
   // Handle navigation for access denied
@@ -100,9 +84,9 @@ const useAccountData = () => {
     // Transactions will refresh automatically via subscription
   };
 
-  const result = {
-    // Data - Return hook data directly
-    userData: userData,
+  return {
+    // Data - FIXED: Remove nested property access
+    userData: userData.userData,
     transactions: transactions.transactions,
     sortedTransactions: transactions.sortedTransactions,
     recentTransactions: transactions.recentTransactions,
@@ -125,21 +109,6 @@ const useAccountData = () => {
     // Navigation (for backward compatibility)
     navigate
   };
-  
-  console.log('[useAccountData] Final result:', {
-    hasUserData: !!result.userData?.userData,
-    userDataLoading: result.userData?.loading,
-    userDataError: result.userData?.error,
-    transactionsLoading: transactions.loading,
-    transactionsError: transactions.error,
-    combinedLoading: result.loading,
-    error: result.error,
-    targetUserId: targetUserId,
-    userUid: user?.uid,
-    shouldFetchData
-  });
-  
-  return result;
 };
 
 export default useAccountData;

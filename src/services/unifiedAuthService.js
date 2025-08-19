@@ -8,7 +8,7 @@ import { getAuth, onAuthStateChanged, onIdTokenChanged, signOut, signInWithPopup
 import { getUserData } from './userService';
 import auditService, { AUDIT_EVENTS } from './auditService';
 import { secureLog, RateLimiter } from '../utils/security';
-import { doc, setDoc, getDoc, updateDoc, addDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 
 /**
@@ -1001,9 +1001,9 @@ class UnifiedAuthService {
 
   canAccessResource(resourceUserId) {
     const authState = this.getAuthState();
-    if (!authState?.isAuthenticated) return false;
+    if (!authState?.isAuthenticated || !authState.user) return false;
     if (authState.isAdmin) return true;
-    return authState.user?.uid === resourceUserId;
+    return authState.user.uid === resourceUserId;
   }
 
   getUserPermissions() {

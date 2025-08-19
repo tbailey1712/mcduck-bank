@@ -293,7 +293,7 @@ const PaginatedTransactionTable = React.memo(({
     } catch (error) {
       console.error('Error editing transaction:', error);
     }
-  }, [editDialog, onTransactionEdit, fetchTransactions, page, pageSize]);
+  }, [editDialog, onTransactionEdit, fetchTransactions, page, pageSize, handleCloseEditDialog]);
 
   const handleDeleteTransaction = useCallback(async (transaction) => {
     if (!onTransactionDelete) return;
@@ -632,8 +632,8 @@ const PaginatedTransactionTable = React.memo(({
           rowsPerPage={pageSize}
           onRowsPerPageChange={handlePageSizeChange}
           rowsPerPageOptions={[5, 10, 25, 50]}
-          labelDisplayedRows={({ from, to }) => 
-            `${from}-${to} of ${pagination.totalDisplayed} displayed`
+          labelDisplayedRows={({ from, to, count }) => 
+            `${from}-${to} of more than ${to}`
           }
           nextIconButtonProps={{
             disabled: !pagination.hasNextPage || loading

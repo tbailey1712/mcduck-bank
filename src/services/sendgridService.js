@@ -5,6 +5,7 @@
 
 import { formatCurrency } from '../utils/formatUtils';
 import { format } from 'date-fns';
+import { sanitizeInput } from '../utils/validation';
 
 class SendGridService {
   constructor() {

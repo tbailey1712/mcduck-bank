@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import {
   Container,
   Typography,
@@ -42,18 +43,17 @@ import { useNavigate } from 'react-router-dom';
 import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
 import withdrawalTaskService from '../services/withdrawalTaskService';
 import { formatCurrency } from '../utils/formatUtils';
+import { fetchWithdrawalRequests, setRequests } from '../store/slices/withdrawalRequestsSlice';
 
 const AdminRequestsPage = () => {
+  const dispatch = useDispatch();
   const { user, isAdmin } = useUnifiedAuth();
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
-  // Requests state
-  const [requests, setRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { requests, loading, error } = useSelector((state) => state.withdrawalRequests);
   const [viewMode, setViewMode] = useState('open'); // 'open' or 'archive'
-  const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   // Action dialogs state
@@ -94,28 +94,25 @@ const AdminRequestsPage = () => {
           );
         }
         
-        setRequests(filteredRequests);
-        setLoading(false);
+        dispatch(setRequests(filteredRequests));
       },
       statusFilter
     );
 
     return () => unsubscribe();
-  }, [user, isAdmin, viewMode]);
+  }, [user, isAdmin, viewMode, dispatch]);
 
   // Handle approval
   const handleApprove = async () => {
     if (!approveDialog.request) return;
 
     setApproveDialog(prev => ({ ...prev, processing: true }));
-    setError('');
 
     try {
       await withdrawalTaskService.approveWithdrawalRequest(approveDialog.request.id, user);
       setSuccess(`Withdrawal request for ${formatCurrency(approveDialog.request.amount)} approved successfully`);
       setApproveDialog({ open: false, request: null, processing: false });
     } catch (err) {
-      setError(err.message || 'Failed to approve withdrawal request');
       setApproveDialog(prev => ({ ...prev, processing: false }));
     }
   };
@@ -125,7 +122,6 @@ const AdminRequestsPage = () => {
     if (!rejectDialog.request || !rejectDialog.reason.trim()) return;
 
     setRejectDialog(prev => ({ ...prev, processing: true }));
-    setError('');
 
     try {
       await withdrawalTaskService.rejectWithdrawalRequest(
@@ -136,41 +132,15 @@ const AdminRequestsPage = () => {
       setSuccess(`Withdrawal request for ${formatCurrency(rejectDialog.request.amount)} rejected`);
       setRejectDialog({ open: false, request: null, reason: '', processing: false });
     } catch (err) {
-      setError(err.message || 'Failed to reject withdrawal request');
       setRejectDialog(prev => ({ ...prev, processing: false }));
     }
   };
 
   // Refresh requests
-  const refreshRequests = useCallback(async () => {
+  const refreshRequests = useCallback(() => {
     if (!user || !isAdmin) return;
-
-    setLoading(true);
-    try {
-      const statusFilter = viewMode === 'open' ? 'pending' : 'all';
-      const result = await withdrawalTaskService.getAllWithdrawalRequests(statusFilter);
-      
-      if (result.success) {
-        let filteredRequests = result.requests;
-        
-        if (viewMode === 'open') {
-          filteredRequests = result.requests.filter(req => req.status === 'pending');
-        } else {
-          filteredRequests = result.requests.filter(req => 
-            ['approved', 'rejected', 'cancelled'].includes(req.status)
-          );
-        }
-        
-        setRequests(filteredRequests);
-      } else {
-        setError(result.error);
-      }
-    } catch (err) {
-      setError('Failed to load withdrawal requests');
-    } finally {
-      setLoading(false);
-    }
-  }, [user, isAdmin, viewMode]);
+    dispatch(fetchWithdrawalRequests(viewMode === 'open' ? 'pending' : 'all'));
+  }, [user, isAdmin, viewMode, dispatch]);
 
   // Get status chip color
   const getStatusColor = (status) => {
@@ -208,7 +178,7 @@ const AdminRequestsPage = () => {
 
       {/* Alerts */}
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => {}}>
           {error}
         </Alert>
       )}

@@ -3,7 +3,6 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import RequestPageIcon from '@mui/icons-material/RequestPage';
-import EmailIcon from '@mui/icons-material/Email';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
@@ -83,17 +82,19 @@ export default function BottomNav() {
     if (!isAdmin) {
       // Regular user: History(0), Withdraw(1)
       switch (newValue) {
-        case 0: navigate('/account'); break;
+        case 0: navigate(`/account/${user?.uid}`); break;
         case 1: navigate('/withdrawal'); break;
+        default: navigate(`/account/${user?.uid}`); break;
       }
       return;
     }
     
     // Admin navigation - corrected mapping based on actual DOM behavior
     switch (newValue) {
-      case 0: navigate('/account'); break;        // History
+      case 0: navigate(`/account/${user?.uid}`); break;        // History
       case 2: navigate('/admin'); break;          // Admin  
       case 3: navigate('/admin/requests'); break; // Requests
+      default: navigate('/admin'); break;
     }
   };
 

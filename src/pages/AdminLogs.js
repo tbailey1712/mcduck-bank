@@ -46,7 +46,7 @@ import { format, subDays, subHours } from 'date-fns';
 import auditService, { AUDIT_EVENTS } from '../services/auditService';
 
 const AdminLogs = () => {
-  const { user, isAdmin, updateActivity } = useUnifiedAuth();
+  const { user, isAdmin } = useUnifiedAuth();
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));

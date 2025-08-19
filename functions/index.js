@@ -731,14 +731,19 @@ exports.calculateMonthlyInterest = onCall(
 
               batch.set(transactionRef, newTransaction);
               
-              // Update account balance cache
+              // Update account balance cache (only if account exists)
               const accountRef = db.collection('accounts').doc(email);
-              batch.set(accountRef, {
-                balance: balance + interestAmountRounded,
-                lastBalanceUpdate: admin.firestore.Timestamp.now(),
-                lastInterestPayment: admin.firestore.Timestamp.now(),
-                lastInterestAmount: interestAmountRounded
-              }, { merge: true });
+              const accountDoc = await accountRef.get();
+              if (accountDoc.exists) {
+                batch.update(accountRef, {
+                  balance: balance + interestAmountRounded,
+                  lastBalanceUpdate: admin.firestore.Timestamp.now(),
+                  lastInterestPayment: admin.firestore.Timestamp.now(),
+                  lastInterestAmount: interestAmountRounded
+                });
+              } else {
+                console.warn(`Account ${email} not found, skipping balance cache update`);
+              }
 
               // Commit the batch
               await batch.commit();
@@ -960,7 +965,7 @@ exports.scheduledPayInterest = onSchedule({
         const balance = await getAccountBalance(userId);
         
         if (balance > 0) {
-          const interestAmount = Math.round(balance * interestRate * 100) / 100;
+          const interestAmount = balance * interestRate;
           
           // Create interest transaction
           const interestTransaction = {

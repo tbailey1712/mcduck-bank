@@ -396,28 +396,6 @@ class ServerNotificationService {
         }
       }
 
-      // Update device last used timestamps
-      const updates = devices.map(device => ({
-        ...device,
-        lastUsed: new Date()
-      }));
-
-      // Store notification in localStorage for cross-device simulation
-      try {
-        const storedNotifications = JSON.parse(localStorage.getItem('mcduck_pending_notifications') || '[]');
-        const newNotification = {
-          id: Date.now(),
-          ...notification,
-          timestamp: new Date().toISOString(),
-          targetDevices: devices.length
-        };
-        storedNotifications.push(newNotification);
-        localStorage.setItem('mcduck_pending_notifications', JSON.stringify(storedNotifications));
-        console.log('💾 Stored notification for cross-device delivery');
-      } catch (storageError) {
-        console.warn('⚠️ Could not store notification for cross-device delivery:', storageError);
-      }
-
       // In a real implementation, you'd call your server API here:
       // const response = await fetch(this.apiEndpoint, {
       //   method: 'POST',

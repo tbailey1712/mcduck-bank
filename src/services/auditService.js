@@ -469,7 +469,7 @@ export const initializeSession = () => {
 // Initialize session on service load
 initializeSession();
 
-export default {
+const auditService = {
   logAuditEvent,
   logAuthEvent,
   logTransactionEvent,
@@ -482,3 +482,5 @@ export default {
   markSecurityEventsAsViewed,
   AUDIT_EVENTS
 };
+
+export default auditService;

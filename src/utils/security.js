@@ -293,7 +293,7 @@ export class RateLimiter {
   }
 }
 
-export default {
+const security = {
   secureSanitize,
   sanitizeFormData,
   sanitizeTransactionData,
@@ -304,3 +304,5 @@ export default {
   RateLimiter,
   SECURITY_CONFIG
 };
+
+export default security;

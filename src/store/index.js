@@ -1,11 +1,13 @@
 import { configureStore } from '@reduxjs/toolkit';
 import authReducer from './slices/authSlice';
 import transactionsReducer from './slices/transactionsSlice';
+import withdrawalRequestsReducer from './slices/withdrawalRequestsSlice';
 
 export const store = configureStore({
   reducer: {
     auth: authReducer,
-    transactions: transactionsReducer
+    transactions: transactionsReducer,
+    withdrawalRequests: withdrawalRequestsReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

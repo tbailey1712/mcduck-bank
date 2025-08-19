@@ -21,7 +21,6 @@ export const getTransactions = async (userId, authUser = null) => {
     const querySnapshot = await getDocs(q);
     const transactions = querySnapshot.docs.map(doc => {
       const data = doc.data();
-      console.log("Transaction:", data);
       return {
         id: doc.id,
         userId: data.user_id,
@@ -50,7 +49,6 @@ export const subscribeToTransactions = (userId, onData, authUser = null) => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const transactions = snapshot.docs.map(doc => {
         const data = doc.data();
-        console.log("Transaction:", data);
         return {
           id: doc.id,
           userId: data.user_id,

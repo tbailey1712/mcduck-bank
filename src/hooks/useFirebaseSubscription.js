@@ -1,21 +1,16 @@
 import { useEffect, useRef } from 'react';
+import { isEqual } from 'lodash';
 
-/**
- * Custom hook for managing Firebase subscription cleanup
- * @param {Function} subscribeFunction - Function that returns an unsubscribe function
- * @param {Array} dependencies - Dependencies array for useEffect
- * @returns {Object} - Returns subscription status and cleanup function
- */
 const useFirebaseSubscription = (subscribeFunction, dependencies = []) => {
   const unsubscribeRef = useRef(null);
   const isActiveRef = useRef(true);
+  const dependenciesRef = useRef(null); // Initialize as null to force first subscription
 
   useEffect(() => {
-    console.log('🔗 useFirebaseSubscription effect called:', {
-      hasSubscribeFunction: !!subscribeFunction,
-      isActive: isActiveRef.current,
-      dependencies
-    });
+    if (isEqual(dependenciesRef.current, dependencies)) {
+      return;
+    }
+    dependenciesRef.current = dependencies;
     
     // Cleanup any existing subscription
     if (unsubscribeRef.current) {
@@ -26,17 +21,10 @@ const useFirebaseSubscription = (subscribeFunction, dependencies = []) => {
     // Only subscribe if component is still active
     if (isActiveRef.current && subscribeFunction) {
       try {
-        console.log('🚀 Calling subscribeFunction...');
         unsubscribeRef.current = subscribeFunction();
-        console.log('✅ Subscription set up, unsubscribe function:', !!unsubscribeRef.current);
       } catch (error) {
         console.error('Error setting up Firebase subscription:', error);
       }
-    } else {
-      console.log('❌ Skipping subscription setup:', {
-        isActive: isActiveRef.current,
-        hasSubscribeFunction: !!subscribeFunction
-      });
     }
 
     // Cleanup function
@@ -46,7 +34,7 @@ const useFirebaseSubscription = (subscribeFunction, dependencies = []) => {
         unsubscribeRef.current = null;
       }
     };
-  }, dependencies);
+  }, [subscribeFunction, dependencies]);
 
   // Cleanup on unmount only
   useEffect(() => {
@@ -60,11 +48,6 @@ const useFirebaseSubscription = (subscribeFunction, dependencies = []) => {
     };
   }, []);
   
-  // Force reactivation when dependencies change
-  useEffect(() => {
-    isActiveRef.current = true;
-  }, dependencies);
-
   // Manual cleanup function
   const cleanup = () => {
     if (unsubscribeRef.current) {

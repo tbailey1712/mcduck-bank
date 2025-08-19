@@ -15,7 +15,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
   IconButton,
   Dialog,
   DialogTitle,
@@ -44,7 +43,7 @@ import useAccountData from '../hooks/useAccountData';
 
 const WithdrawalPage = () => {
   const { user } = useUnifiedAuth();
-  const { userData, transactionSummary, loading: accountLoading } = useAccountData();
+  const { transactionSummary, loading: accountLoading } = useAccountData();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 

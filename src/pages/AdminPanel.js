@@ -1,46 +1,34 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUnifiedAuth } from '../contexts/UnifiedAuthProvider';
-import { Box, Container, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Paper, Card, CardContent, Grid, Alert, InputAdornment, useTheme, useMediaQuery, Stack, CircularProgress, FormControlLabel, Switch, Divider } from '@mui/material';
-import VisibilityIcon from '@mui/icons-material/Visibility';
-import EmailIcon from '@mui/icons-material/Email';
-import { collection, query, getDocs, addDoc, doc, updateDoc, deleteDoc, getDoc, setDoc } from 'firebase/firestore';
+import { Box, Container, Typography, Paper, CircularProgress, Alert, Button } from '@mui/material';
+import { collection, query, getDocs, doc, getDoc, setDoc, addDoc } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
-import { formatCurrency } from '../utils/formatUtils';
-import { format } from 'date-fns';
 import { fetchAndProcessTransactions } from '../services/transactionService';
 import { getAuth } from 'firebase/auth';
-import { AdminTransactionForm } from '../components';
-import serverNotificationService from '../services/serverNotificationService';
 import auditService, { AUDIT_EVENTS } from '../services/auditService';
-import withdrawalDepositService from '../services/withdrawalDepositService';
-import withdrawalTaskService from '../services/withdrawalTaskService';
 import adminCloudFunctions from '../services/adminCloudFunctions';
+import CustomerList from '../components/CustomerList';
+import SystemConfiguration from '../components/SystemConfiguration';
+import AdminJobs from '../components/AdminJobs';
+import TransactionForm from '../components/TransactionForm';
+import withdrawalTaskService from '../services/withdrawalTaskService';
+import withdrawalDepositService from '../services/withdrawalDepositService';
+import serverNotificationService from '../services/serverNotificationService';
 
 const AdminPanel = () => {
-  const { user, isAdmin, updateActivity } = useUnifiedAuth();
+  const { user, isAdmin } = useUnifiedAuth();
   const navigate = useNavigate();
   
-  // Responsive design
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  
-  // Customer management state
   const [customers, setCustomers] = useState([]);
   const [customerBalances, setCustomerBalances] = useState({});
   const [lastTransactionDates, setLastTransactionDates] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  // Transaction management state
   const [transactionLoading, setTransactionLoading] = useState(false);
   const [transactionError, setTransactionError] = useState('');
-  const [openEditDialog, setOpenEditDialog] = useState(false);
-  const [selectedTransaction, setSelectedTransaction] = useState(null);
-  const [editAmount, setEditAmount] = useState('');
-  const [editDescription, setEditDescription] = useState('');
   
-  // System configuration state
   const [systemConfig, setSystemConfig] = useState({
     interest_rate: 1.75,
     allowNewUsers: false
@@ -48,16 +36,13 @@ const AdminPanel = () => {
   const [configLoading, setConfigLoading] = useState(false);
   const [configError, setConfigError] = useState('');
   
-  // Registration toggle status
   const [toggleSaving, setToggleSaving] = useState(false);
   const [toggleStatus, setToggleStatus] = useState('');
 
-  // Jobs state
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobResults, setJobResults] = useState(null);
   const [jobError, setJobError] = useState('');
 
-  // Optimized customer data fetching with batch processing
   const fetchCustomers = useCallback(async () => {
     try {
       setLoading(true);
@@ -74,7 +59,6 @@ const AdminPanel = () => {
       
       setCustomers(customersData);
       
-      // Process customer balances in batches to avoid overwhelming the system
       const balances = {};
       const lastTransactionDates = {};
       const batchSize = 5;
@@ -109,7 +93,6 @@ const AdminPanel = () => {
         
         const batchResults = await Promise.all(batchPromises);
         
-        // Update state incrementally for better UX
         batchResults.forEach(({ id, balance, lastTransaction }) => {
           balances[id] = balance;
           lastTransactionDates[id] = lastTransaction;
@@ -126,8 +109,7 @@ const AdminPanel = () => {
     }
   }, []);
 
-  // Fetch system configuration
-  const fetchSystemConfig = async () => {
+  const fetchSystemConfig = useCallback(async () => {
     try {
       setConfigLoading(true);
       const configRef = doc(db, 'system', 'config');
@@ -146,25 +128,17 @@ const AdminPanel = () => {
     } finally {
       setConfigLoading(false);
     }
-  };
+  }, []);
 
-  // Memoized system configuration update
   const updateSystemConfig = useCallback(async (newConfig) => {
     try {
       setConfigLoading(true);
       setConfigError('');
       
-      console.log('🔧 Updating system config:', newConfig);
-      console.log('🔧 Previous config:', systemConfig);
-      
       const configRef = doc(db, 'system', 'config');
       
-      // Use setDoc with merge to create document if it doesn't exist
       await setDoc(configRef, newConfig, { merge: true });
       
-      console.log('✅ System config updated successfully in Firestore');
-      
-      // Log configuration update for audit
       try {
         await auditService.logAdminEvent(
           AUDIT_EVENTS.CONFIG_UPDATED,
@@ -172,7 +146,7 @@ const AdminPanel = () => {
           {
             config_changes: newConfig,
             previous_config: systemConfig,
-            sensitive: true // System configuration changes are sensitive
+            sensitive: true
           }
         );
       } catch (auditError) {
@@ -182,29 +156,23 @@ const AdminPanel = () => {
       setSystemConfig(prev => ({ ...prev, ...newConfig }));
     } catch (error) {
       console.error('❌ Error updating system config:', error);
-      console.error('❌ Error details:', error.message, error.code);
       setConfigError(`Failed to update system configuration: ${error.message}`);
       throw error;
     } finally {
       setConfigLoading(false);
     }
-  }, []);
+  }, [user, systemConfig]);
 
-  // Save registration toggle immediately
   const updateRegistrationSetting = useCallback(async (allowNewUsers) => {
     try {
       setToggleSaving(true);
       setToggleStatus('');
       
-      console.log('🔄 Updating registration setting:', allowNewUsers);
-      
       const configRef = doc(db, 'system', 'config');
       await setDoc(configRef, { allowNewUsers }, { merge: true });
       
-      console.log('✅ Registration setting updated successfully');
       setToggleStatus('success');
       
-      // Log configuration update for audit
       try {
         await auditService.logAdminEvent(
           AUDIT_EVENTS.CONFIG_UPDATED,
@@ -221,30 +189,24 @@ const AdminPanel = () => {
       }
       
     } catch (error) {
-      console.error('❌ Error updating registration setting:', error);
       setToggleStatus('error');
     } finally {
       setToggleSaving(false);
-      // Clear status after 3 seconds
       setTimeout(() => setToggleStatus(''), 3000);
     }
   }, [user, systemConfig.allowNewUsers]);
 
-  // Retry functionality - must be before any conditional returns
   const handleRetry = useCallback(() => {
     fetchCustomers();
     fetchSystemConfig();
-  }, [fetchCustomers]);
+  }, [fetchCustomers, fetchSystemConfig]);
 
-  // Admin setup handler
   const handleSetupAdmin = async () => {
     try {
       setJobsLoading(true);
       setJobError('');
       setJobResults(null);
 
-      console.log('🚀 Setting up admin privileges...');
-      
       const results = await adminCloudFunctions.setupAdmin();
       
       setJobResults({
@@ -253,29 +215,21 @@ const AdminPanel = () => {
         success: true
       });
 
-      console.log('✅ Admin setup completed successfully');
-      
-      // Show message about refreshing
       alert('Admin privileges set! Please refresh your browser for changes to take effect.');
       
     } catch (error) {
-      console.error('❌ Error calling setupAdmin function:', error);
       setJobError(adminCloudFunctions.getErrorMessage(error));
     } finally {
       setJobsLoading(false);
     }
   };
 
-  // Cloud Function job handlers
   const handleCalculateInterest = async () => {
     try {
       setJobsLoading(true);
       setJobError('');
       setJobResults(null);
 
-      console.log('🚀 Starting interest calculation from admin panel...');
-      
-      // Call the secure cloud function using Firebase callable functions
       const results = await adminCloudFunctions.calculateInterest();
       
       setJobResults({
@@ -283,7 +237,6 @@ const AdminPanel = () => {
         ...results.results
       });
 
-      // Log cloud function execution for audit
       try {
         await auditService.logAdminEvent(
           AUDIT_EVENTS.CLOUD_FUNCTION_EXECUTED,
@@ -292,19 +245,15 @@ const AdminPanel = () => {
             function_name: 'calculateInterest',
             results: results.results,
             execution_time: new Date(),
-            sensitive: true // Interest calculations are sensitive operations
+            sensitive: true
           }
         );
       } catch (auditError) {
         console.warn('Failed to log interest calculation audit event:', auditError);
       }
 
-      console.log('✅ Interest calculation completed successfully');
-      
-      // Refresh customer data to show updated balances
       await fetchCustomers();
     } catch (error) {
-      console.error('❌ Error calling interest calculation function:', error);
       setJobError(adminCloudFunctions.getErrorMessage(error));
     } finally {
       setJobsLoading(false);
@@ -317,9 +266,6 @@ const AdminPanel = () => {
       setJobError('');
       setJobResults(null);
 
-      console.log(`🚀 Sending statement to ${customerEmail}...`);
-      
-      // Call the secure cloud function for individual customer
       const results = await adminCloudFunctions.sendMonthlyStatements({ customerEmail });
       
       setJobResults({
@@ -331,9 +277,7 @@ const AdminPanel = () => {
         errors: results.results.errors
       });
 
-      console.log(`✅ Statement sent to ${customerEmail} successfully`);
     } catch (error) {
-      console.error(`❌ Error sending statement to ${customerEmail}:`, error);
       setJobError(adminCloudFunctions.getErrorMessage(error));
     } finally {
       setJobsLoading(false);
@@ -346,9 +290,6 @@ const AdminPanel = () => {
       setJobError('');
       setJobResults(null);
 
-      console.log('🚀 Starting monthly statements generation from admin panel...');
-      
-      // Call the secure cloud function using Firebase callable functions
       const results = await adminCloudFunctions.sendMonthlyStatements();
       
       setJobResults({
@@ -359,7 +300,6 @@ const AdminPanel = () => {
         errors: results.results.errors
       });
 
-      // Log cloud function execution for audit
       try {
         await auditService.logAdminEvent(
           AUDIT_EVENTS.CLOUD_FUNCTION_EXECUTED,
@@ -375,24 +315,19 @@ const AdminPanel = () => {
         console.warn('Failed to log statements generation audit event:', auditError);
       }
       
-      console.log('✅ Monthly statements generation completed successfully');
     } catch (error) {
-      console.error('❌ Error calling statements generation function:', error);
       setJobError(adminCloudFunctions.getErrorMessage(error));
     } finally {
       setJobsLoading(false);
     }
   };
 
-  // Fetch initial data
   useEffect(() => {
     fetchCustomers();
     fetchSystemConfig();
-  }, []);
+  }, [fetchCustomers, fetchSystemConfig]);
 
-  // Create transaction
   const createTransaction = async (transactionData) => {
-    console.log('🚀 CREATE TRANSACTION CALLED:', transactionData);
     setTransactionLoading(true);
     setTransactionError('');
 
@@ -432,31 +367,11 @@ const AdminPanel = () => {
         amount: transactionData.amount,
         transaction_type: transactionData.transactionType,
         comment: transactionData.description || '',
-        timestamp: new Date()
+        timestamp: transactionData.date ? new Date(transactionData.date) : new Date()
       });
-
-      console.log('📄 TRANSACTION CREATED IN FIRESTORE:', docRef.id);
 
       // Log transaction creation for audit
-      console.log('🔄 Starting audit logging for transaction creation...');
-      
-      const transactionDoc = {
-        id: docRef.id,
-        user_id: transactionData.userId,
-        amount: transactionData.amount,
-        transaction_type: transactionData.transactionType,
-        comment: transactionData.description || '',
-        timestamp: new Date()
-      };
-
-      // Find target customer for audit log
       const targetCustomer = customers.find(c => c.user_id === transactionData.userId);
-      
-      console.log('🎯 Transaction audit data:', {
-        transactionDoc,
-        targetCustomer,
-        currentUser: user
-      });
       
       await auditService.logTransactionEvent(
         AUDIT_EVENTS.TRANSACTION_CREATED,
@@ -471,7 +386,7 @@ const AdminPanel = () => {
             amount: transactionData.amount,
             transaction_type: transactionData.transactionType,
             description: transactionData.description || '',
-            timestamp: new Date(),
+            timestamp: transactionData.date ? new Date(transactionData.date) : new Date(),
             user_id: transactionData.userId
           }
         },
@@ -482,23 +397,19 @@ const AdminPanel = () => {
           displayName: targetCustomer.displayName || targetCustomer.name
         } : null
       );
-      
-      console.log('✅ Transaction audit logging completed');
 
       // Create house deposit for withdrawals
       if (transactionData.transactionType === 'withdrawal') {
         try {
-          const transactionDoc = {
-            id: docRef.id,
-            user_id: transactionData.userId,
-            amount: transactionData.amount,
-            transaction_type: transactionData.transactionType,
-            comment: transactionData.description || '',
-            timestamp: new Date()
-          };
-
           await withdrawalDepositService.createHouseDeposit(
-            transactionDoc,
+            { 
+              id: docRef.id,
+              user_id: transactionData.userId,
+              amount: transactionData.amount,
+              transaction_type: transactionData.transactionType,
+              comment: transactionData.description || '',
+              timestamp: new Date()
+            },
             docRef.id,
             { 
               uid: transactionData.userId,
@@ -506,66 +417,52 @@ const AdminPanel = () => {
               displayName: targetCustomer?.displayName || targetCustomer?.name
             }
           );
-          console.log('✅ House deposit created for admin withdrawal:', docRef.id);
         } catch (houseDepositError) {
           console.warn('⚠️ Failed to create house deposit for admin withdrawal:', houseDepositError);
-          // Don't fail the transaction if house deposit fails
         }
       }
 
       // Send notification for deposit/withdrawal
       try {
-        const transactionDoc = {
-          id: docRef.id,
-          user_id: transactionData.userId,
-          amount: transactionData.amount,
-          transaction_type: transactionData.transactionType,
-          comment: transactionData.description || '',
-          timestamp: new Date()
-        };
-
-        console.log('🔔 Sending transaction notification to user:', transactionData.userId);
-        console.log('💰 Transaction type:', transactionData.transactionType, 'Amount:', transactionData.amount);
-
-        // Always send notification to the transaction recipient
         const targetUserId = transactionData.userId;
-        console.log('🎯 Target notification user:', targetUserId);
         
-        // Check if this is the admin user (for testing cross-device notifications)
-        if (targetUserId === user.uid) {
-          console.log('📱 This is the admin user - notification should appear on all admin devices (including mobile)');
-        } else {
-          console.log('👤 This is a customer - notification will only work if customer has registered devices');
-        }
-
         if (transactionData.transactionType === 'deposit') {
           await serverNotificationService.sendDepositNotification(
             targetUserId,
             transactionData.amount,
             transactionData.description,
-            transactionDoc
+            { 
+              id: docRef.id,
+              user_id: transactionData.userId,
+              amount: transactionData.amount,
+              transaction_type: transactionData.transactionType,
+              comment: transactionData.description || '',
+              timestamp: new Date()
+            }
           );
         } else if (transactionData.transactionType === 'withdrawal') {
           await serverNotificationService.sendWithdrawalNotification(
             targetUserId,
             transactionData.amount,
             transactionData.description,
-            transactionDoc
+            { 
+              id: docRef.id,
+              user_id: transactionData.userId,
+              amount: transactionData.amount,
+              transaction_type: transactionData.transactionType,
+              comment: transactionData.description || '',
+              timestamp: new Date()
+            }
           );
         }
-        
-        console.log('✅ Transaction notification sent successfully');
       } catch (notificationError) {
         console.warn('⚠️ Failed to send notification:', notificationError);
-        // Don't fail the transaction if notification fails
       }
 
-      // Refresh customer data to update balances
       await fetchCustomers();
     } catch (error) {
-      console.error('Error creating transaction:', error);
       setTransactionError(error.message || 'Failed to create transaction');
-      throw error; // Re-throw to be handled by form
+      throw error;
     } finally {
       setTransactionLoading(false);
     }
@@ -576,145 +473,6 @@ const AdminPanel = () => {
     return null;
   }
 
-  // Handle transaction management
-  const handleViewTransactions = async (customerId) => {
-    const customer = customers.find(c => c.id === customerId);
-    if (!customer) return;
-    try {
-      // Use user_id for transaction queries
-      const { transactions } = await fetchAndProcessTransactions(customer.user_id);
-      if (transactions.length > 0) {
-        setSelectedTransaction(transactions[0]);
-        setEditAmount(transactions[0].amount.toString());
-        setEditDescription(transactions[0].comment || '');
-        setOpenEditDialog(true);
-      }
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
-    }
-  };
-
-  const handleSaveTransaction = async () => {
-    if (!selectedTransaction || !editAmount) return;
-
-    try {
-      const previousAmount = selectedTransaction.amount;
-      const previousDescription = selectedTransaction.comment || selectedTransaction.description || '';
-      const newAmount = parseFloat(editAmount);
-      const newDescription = editDescription || '';
-      
-      // Track what changed
-      const changes = [];
-      
-      if (previousAmount !== newAmount) {
-        changes.push({
-          field: 'amount',
-          old_value: previousAmount,
-          new_value: newAmount,
-          formatted_old: `$${previousAmount.toFixed(2)}`,
-          formatted_new: `$${newAmount.toFixed(2)}`
-        });
-      }
-      
-      if (previousDescription !== newDescription) {
-        changes.push({
-          field: 'description',
-          old_value: previousDescription,
-          new_value: newDescription,
-          formatted_old: previousDescription || '(empty)',
-          formatted_new: newDescription || '(empty)'
-        });
-      }
-      
-      const transactionRef = doc(db, 'transactions', selectedTransaction.id);
-      await updateDoc(transactionRef, {
-        amount: newAmount,
-        comment: editDescription
-      });
-
-      // Log transaction edit for audit with detailed change tracking
-      const targetCustomer = customers.find(c => c.user_id === selectedTransaction.user_id);
-      
-      await auditService.logTransactionEvent(
-        AUDIT_EVENTS.TRANSACTION_EDITED,
-        user,
-        {
-          transaction_id: selectedTransaction.id,
-          account_edited: selectedTransaction.user_id || 'unknown',
-          account_email: targetCustomer?.email || 'unknown',
-          account_name: targetCustomer?.displayName || targetCustomer?.name || 'unknown',
-          changes_made: changes,
-          total_changes: changes.length,
-          edited_from: 'admin_panel',
-          original_values: {
-            amount: previousAmount,
-            description: previousDescription,
-            transaction_type: selectedTransaction.transaction_type,
-            timestamp: selectedTransaction.timestamp
-          },
-          new_values: {
-            amount: newAmount,
-            description: newDescription,
-            transaction_type: selectedTransaction.transaction_type,
-            timestamp: selectedTransaction.timestamp
-          }
-        },
-        targetCustomer ? {
-          id: targetCustomer.user_id,
-          type: 'customer',
-          email: targetCustomer.email,
-          displayName: targetCustomer.displayName || targetCustomer.name
-        } : null
-      );
-
-      setOpenEditDialog(false);
-      setSelectedTransaction(null);
-      // Refresh customer balances
-      fetchCustomers();
-    } catch (error) {
-      console.error('Error updating transaction:', error);
-    }
-  };
-
-  const handleDeleteTransaction = async () => {
-    if (!selectedTransaction) return;
-
-    try {
-      const transactionRef = doc(db, 'transactions', selectedTransaction.id);
-      await deleteDoc(transactionRef);
-
-      // Log transaction deletion for audit
-      const targetCustomer = customers.find(c => c.user_id === selectedTransaction.user_id);
-      
-      await auditService.logTransactionEvent(
-        AUDIT_EVENTS.TRANSACTION_DELETED,
-        user,
-        {
-          id: selectedTransaction.id,
-          transaction_type: selectedTransaction.transaction_type,
-          amount: selectedTransaction.amount,
-          description: selectedTransaction.comment,
-          comment: selectedTransaction.comment,
-          deleted_at: new Date()
-        },
-        targetCustomer ? {
-          id: targetCustomer.user_id,
-          type: 'customer',
-          email: targetCustomer.email,
-          displayName: targetCustomer.displayName || targetCustomer.name
-        } : null
-      );
-
-      setOpenEditDialog(false);
-      setSelectedTransaction(null);
-      // Refresh customer balances
-      fetchCustomers();
-    } catch (error) {
-      console.error('Error deleting transaction:', error);
-    }
-  };
-
-  // Loading state
   if (loading) {
     return (
       <Container maxWidth="lg" sx={{ mt: { xs: 10, sm: 8, md: 9 } }}>
@@ -726,7 +484,6 @@ const AdminPanel = () => {
     );
   }
 
-  // Error state with retry option
   if (error) {
     return (
       <Container maxWidth="lg" sx={{ mt: { xs: 10, sm: 8, md: 9 } }}>
@@ -751,393 +508,46 @@ const AdminPanel = () => {
         Admin Dashboard
       </Typography>
 
-      {/* Transaction Form */}
-      <AdminTransactionForm
+      <TransactionForm
         customers={customers}
         onSubmit={createTransaction}
         loading={transactionLoading}
         error={transactionError}
       />
 
-
-      {/* System Configuration Panel */}
-      <Card sx={{ mb: 4 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            System Configuration
-          </Typography>
-          
-          {configError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {configError}
-            </Alert>
-          )}
-          
-          <Grid container spacing={3} alignItems="center">
-            <Grid item xs={12} sm={6} md={4}>
-              <TextField
-                label="Interest Rate"
-                type="number"
-                value={systemConfig.interest_rate}
-                onChange={(e) => setSystemConfig(prev => ({
-                  ...prev,
-                  interest_rate: parseFloat(e.target.value) || 0
-                }))}
-                disabled={configLoading}
-                fullWidth
-                inputProps={{
-                  step: "0.01",
-                  min: "0",
-                  max: "100"
-                }}
-                InputProps={{
-                  endAdornment: <InputAdornment position="end">%</InputAdornment>
-                }}
-                helperText="Annual interest rate percentage"
-              />
-            </Grid>
-            <Grid item xs={12} sm={6} md={4}>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={() => {
-                  console.log('💾 Interest rate save button clicked:', systemConfig.interest_rate);
-                  updateSystemConfig({ 
-                    interest_rate: systemConfig.interest_rate
-                  });
-                }}
-                disabled={configLoading}
-                fullWidth
-              >
-                {configLoading ? 'Saving...' : 'Save Interest Rate'}
-              </Button>
-            </Grid>
-          </Grid>
-          
-          <Divider sx={{ my: 3 }} />
-          
-          <Typography variant="h6" gutterBottom>
-            User Registration Settings
-          </Typography>
-          
-          <Grid container spacing={3} alignItems="center">
-            <Grid item xs={12} sm={8} md={6}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={systemConfig.allowNewUsers}
-                    onChange={(e) => {
-                      const newValue = e.target.checked;
-                      console.log('🔄 Toggle changed:', newValue);
-                      
-                      // Update local state immediately
-                      setSystemConfig(prev => ({
-                        ...prev,
-                        allowNewUsers: newValue
-                      }));
-                      
-                      // Save to database immediately
-                      updateRegistrationSetting(newValue);
-                    }}
-                    disabled={toggleSaving}
-                    color="primary"
-                  />
-                }
-                label="Allow New User Registration"
-                sx={{ width: '100%' }}
-              />
-              <Typography variant="caption" color="text.secondary">
-                When enabled, new Google OAuth users will be automatically registered if their email exists in accounts. 
-                When disabled, new login attempts are logged as warnings and access is denied.
-              </Typography>
-              
-              {/* Status messages */}
-              {toggleSaving && (
-                <Alert severity="info" sx={{ mt: 1 }}>
-                  Saving registration setting...
-                </Alert>
-              )}
-              {toggleStatus === 'success' && (
-                <Alert severity="success" sx={{ mt: 1 }}>
-                  ✅ Registration setting saved successfully!
-                </Alert>
-              )}
-              {toggleStatus === 'error' && (
-                <Alert severity="error" sx={{ mt: 1 }}>
-                  ❌ Failed to save registration setting. Please try again.
-                </Alert>
-              )}
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
-
-      {/* Cloud Functions Jobs Panel */}
-      <Card sx={{ mb: 4 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Cloud Function Jobs
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Trigger automated banking operations via cloud functions
-          </Typography>
-          
-          {jobError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {jobError}
-            </Alert>
-          )}
-
-          {jobResults && (
-            <Alert 
-              severity="success" 
-              sx={{ mb: 2 }}
-              onClose={() => setJobResults(null)}
-            >
-              <Typography variant="subtitle2">
-                {jobResults.type === 'interest' ? 'Interest Calculation' : 
-                 jobResults.type === 'individual_statement' ? `Individual Statement for ${jobResults.customerEmail}` :
-                 'Statement Generation'} Completed
-              </Typography>
-              <Typography variant="body2">
-                Processed: {jobResults.totalProcessed} accounts
-                {jobResults.type === 'interest' && (
-                  <>
-                    <br />Total Interest Paid: ${jobResults.totalInterestPaid?.toFixed(2) || '0.00'}
-                    <br />Already Paid This Month: {jobResults.alreadyPaid || 0}
-                  </>
-                )}
-                {(jobResults.type === 'statements' || jobResults.type === 'individual_statement') && (
-                  <>
-                    <br />Emails Sent: {jobResults.emailsSent || 0}
-                    {jobResults.emailErrors > 0 && (
-                      <>
-                        <br />Email Errors: {jobResults.emailErrors}
-                      </>
-                    )}
-                  </>
-                )}
-                {jobResults.errors?.length > 0 && (
-                  <>
-                    <br />Errors: {jobResults.errors.length}
-                  </>
-                )}
-              </Typography>
-            </Alert>
-          )}
-          
-          <Grid container spacing={3}>
-            <Grid item xs={12} sm={6} md={4}>
-              <Button
-                variant="contained"
-                color="warning"
-                onClick={handleSetupAdmin}
-                disabled={jobsLoading}
-                fullWidth
-                sx={{ mb: 1 }}
-              >
-                {jobsLoading ? 'Processing...' : 'Setup Admin Privileges'}
-              </Button>
-              <Typography variant="caption" color="text.secondary">
-                One-time setup to grant admin privileges to current user
-              </Typography>
-            </Grid>
-            
-            <Grid item xs={12} sm={6} md={4}>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleCalculateInterest}
-                disabled={jobsLoading}
-                fullWidth
-                sx={{ mb: 1 }}
-              >
-                {jobsLoading ? 'Processing...' : 'Calculate Monthly Interest'}
-              </Button>
-              <Typography variant="caption" color="text.secondary">
-                Pays interest to all eligible accounts (notifications sent via monthly statements)
-              </Typography>
-            </Grid>
-            
-            <Grid item xs={12} sm={6} md={4}>
-              <Button
-                variant="contained"
-                color="secondary"
-                onClick={handleGenerateStatements}
-                disabled={jobsLoading}
-                fullWidth
-                sx={{ mb: 1 }}
-              >
-                {jobsLoading ? 'Processing...' : 'Send Monthly Statements'}
-              </Button>
-              <Typography variant="caption" color="text.secondary">
-                Generates and emails monthly statements to all customers
-              </Typography>
-            </Grid>
-          </Grid>
-
-        </CardContent>
-      </Card>
-
-      {/* Customer List */}
-      <Paper sx={{ p: 3, mt: { xs: 10, sm: 8, md: 9 } }}>
+      <Paper sx={{ p: 3, mb: 4 }}>
         <Typography variant="h6" gutterBottom>
           Customer Accounts
         </Typography>
-        
-        {isMobile ? (
-          // Mobile card layout
-          <Stack spacing={2}>
-            {customers.map((customer) => (
-              <Card key={customer.id} variant="outlined">
-                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                  <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
-                    <Box flex={1}>
-                      <Button
-                        variant="text"
-                        onClick={() => navigate(`/account/${customer.user_id}`)}
-                        sx={{ textTransform: 'none', p: 0, justifyContent: 'flex-start', mb: 1 }}
-                      >
-                        <Typography variant="subtitle1" fontWeight="medium">
-                          {customer.displayName || customer.name || 'No name set'}
-                        </Typography>
-                      </Button>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        {customer.email || customer.id}
-                      </Typography>
-                      <Typography variant="h6" color="success.main" fontWeight="medium">
-                        {formatCurrency(customerBalances[customer.id] || 0)}
-                      </Typography>
-                    </Box>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleViewTransactions(customer.user_id)}
-                      title="View Transactions"
-                      sx={{ mr: 1 }}
-                    >
-                      <VisibilityIcon />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleSendIndividualStatement(customer.email)}
-                      title="Send Monthly Statement"
-                      disabled={jobsLoading || !customer.email}
-                    >
-                      <EmailIcon />
-                    </IconButton>
-                  </Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Last transaction: {lastTransactionDates[customer.id] ? 
-                      format(new Date(lastTransactionDates[customer.id]), 'MMM d, yyyy HH:mm') : 
-                      'No transactions'
-                    }
-                  </Typography>
-                </CardContent>
-              </Card>
-            ))}
-          </Stack>
-        ) : (
-          // Desktop table layout
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Customer Name</TableCell>
-                  <TableCell>Email Address</TableCell>
-                  <TableCell>Account Balance</TableCell>
-                  <TableCell>Last Transaction</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {customers.map((customer) => (
-                  <TableRow key={customer.id}>
-                    <TableCell>
-                      <Button
-                        variant="text"
-                        onClick={() => navigate(`/account/${customer.user_id}`)}
-                        sx={{ textTransform: 'none' }}
-                      >
-                        {customer.displayName || customer.name || 'No name set'}
-                      </Button>
-                    </TableCell>
-                    <TableCell>
-                      {customer.email || customer.id}
-                    </TableCell>
-                    <TableCell>{formatCurrency(customerBalances[customer.id] || 0)}</TableCell>
-                    <TableCell>
-                      {lastTransactionDates[customer.id] ? 
-                        format(new Date(lastTransactionDates[customer.id]), 'MMM d, yyyy HH:mm') : 
-                        'No transactions'
-                      }
-                    </TableCell>
-                    <TableCell>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleViewTransactions(customer.user_id)}
-                        title="View Transactions"
-                        sx={{ mr: 1 }}
-                      >
-                        <VisibilityIcon />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleSendIndividualStatement(customer.email)}
-                        title="Send Monthly Statement"
-                        disabled={jobsLoading || !customer.email}
-                      >
-                        <EmailIcon />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
+        <CustomerList
+          customers={customers}
+          customerBalances={customerBalances}
+          lastTransactionDates={lastTransactionDates}
+          onSendStatement={handleSendIndividualStatement}
+          onViewTransactions={(userId) => navigate(`/account/${userId}`)}
+          onCustomerClick={(userId) => navigate(`/account/${userId}`)}
+        />
       </Paper>
 
-      {/* Transaction Management Dialog */}
-      <Dialog open={openEditDialog} onClose={() => setOpenEditDialog(false)}>
-        <DialogTitle>{selectedTransaction ? 'Edit Transaction' : 'Transaction Details'}</DialogTitle>
-        <DialogContent>
-          {selectedTransaction && (
-            <>
-              <TextField
-                label="Amount"
-                type="number"
-                value={editAmount}
-                onChange={(e) => setEditAmount(e.target.value)}
-                fullWidth
-                margin="normal"
-              />
-              <TextField
-                label="Description"
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                fullWidth
-                margin="normal"
-              />
-              <Button
-                variant="outlined"
-                color="error"
-                onClick={handleDeleteTransaction}
-                sx={{ mt: 2 }}
-              >
-                Delete Transaction
-              </Button>
-            </>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenEditDialog(false)}>Cancel</Button>
-          {selectedTransaction && (
-            <Button onClick={handleSaveTransaction} color="primary">
-              Save Changes
-            </Button>
-          )}
-        </DialogActions>
-      </Dialog>
+      <SystemConfiguration
+        config={systemConfig}
+        onConfigChange={(key, value) => setSystemConfig(prev => ({ ...prev, [key]: value }))}
+        onSave={updateSystemConfig}
+        loading={configLoading}
+        error={configError}
+        onToggleChange={updateRegistrationSetting}
+        toggleSaving={toggleSaving}
+        toggleStatus={toggleStatus}
+      />
+
+      <AdminJobs
+        onSetupAdmin={handleSetupAdmin}
+        onCalculateInterest={handleCalculateInterest}
+        onGenerateStatements={handleGenerateStatements}
+        loading={jobsLoading}
+        error={jobError}
+        results={jobResults}
+      />
     </Container>
   );
 };

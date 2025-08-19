@@ -176,7 +176,7 @@ export const validateUniqueKeys = (items, keyGenerator = generateStableKey) => {
 };
 
 // Default export with all utilities
-export default {
+const keyGeneration = {
   generateStableKey,
   generateTransactionKey,
   generateUserKey,
@@ -185,3 +185,5 @@ export default {
   createKeyGenerator,
   validateUniqueKeys
 };
+
+export default keyGeneration;

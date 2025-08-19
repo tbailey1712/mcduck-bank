@@ -313,7 +313,7 @@ export const parseAmount = (amount) => {
   return isNaN(parsed) ? null : parsed;
 };
 
-export default {
+const validation = {
   sanitizeInput,
   sanitizeHtml,
   sanitizeObject,
@@ -329,3 +329,5 @@ export default {
   parseAmount,
   VALIDATION_MESSAGES,
 };
+
+export default validation;
