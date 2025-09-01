@@ -4,6 +4,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { setGlobalOptions } = require("firebase-functions/v2");
 const admin = require("firebase-admin");
 const sgMail = require("@sendgrid/mail");
+const axios = require("axios");
 const cors = require("cors")({ origin: true });
 
 // Initialize Firebase Admin
@@ -18,6 +19,16 @@ setGlobalOptions({
 
 // Set SendGrid API key from environment variable
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+// Telegram Bot API helper
+const sendTelegramMessage = async (message) => {
+  const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+  return axios.post(url, {
+    chat_id: process.env.TELEGRAM_CHAT_ID,
+    text: message,
+    parse_mode: 'HTML'
+  });
+};
 
 /**
  * Utility Functions
@@ -496,6 +507,7 @@ const createMonthlyStatement = async (account, transactions, year, month) => {
 // Send email using SendGrid
 const sendStatementEmail = async (email, subject, htmlContent) => {
   try {
+    
     const msg = {
       to: email,
       from: process.env.FROM_EMAIL || 'noreply@mcduckbank.com',
@@ -629,183 +641,6 @@ exports.cleanupWrongAccounts = onCall(
  */
 
 // Calculate Interest Payment Function
-exports.calculateMonthlyInterest = onCall(
-  {
-    timeoutSeconds: 540, // 9 minutes
-    memory: "256MiB"
-  },
-  async (request) => {
-    try {
-      // 1. Enforce authentication
-      if (!request.auth) {
-        throw new Error('unauthenticated: The function must be called while authenticated.');
-      }
-      
-      // Debug logging for auth token
-      console.log('Auth token details:', {
-        uid: request.auth.uid,
-        email: request.auth.token.email,
-        administrator: request.auth.token.administrator,
-        customClaims: request.auth.token,
-        tokenKeys: Object.keys(request.auth.token)
-      });
-      
-      // 2. Enforce authorization (check for admin custom claim)
-      const isAdmin = request.auth.token.administrator === true;
-      if (!isAdmin) {
-        throw new Error('permission-denied: Only admins can trigger this function.');
-      }
-        console.log('Starting interest calculation job...');
-        
-        const jobStartTime = new Date();
-        const results = {
-          totalProcessed: 0,
-          totalInterestPaid: 0,
-          alreadyPaid: 0,
-          skippedZeroBalance: 0,
-          errors: [],
-          startTime: jobStartTime.toISOString(),
-          triggeredBy: request.auth.email || 'Unknown'
-        };
-
-        const interestRate = (await fetchInterestRate()) / 100;
-        console.log(`Starting interest calculation with rate: ${interestRate * 100}%`);
-        console.log(`Job triggered by: ${results.triggeredBy}`);
-        
-        if (interestRate <= 0) {
-          throw new Error('Interest rate is 0% or invalid. Please check system configuration.');
-        }
-
-        // Get all accounts
-        const accountsRef = db.collection('accounts');
-        const accountsSnapshot = await accountsRef.get();
-
-        for (const accountDoc of accountsSnapshot.docs) {
-          const accountData = accountDoc.data();
-          const userId = accountData.user_id;
-          const name = accountData.displayName || accountData.name || accountDoc.id;
-          const email = accountDoc.id;
-
-          try {
-            // Check if interest already paid this month
-            const alreadyPaid = await hasInterestPaidThisMonth(userId);
-            if (alreadyPaid) {
-              console.log(`calculate_interest(${name}): Interest already paid this month.`);
-              results.alreadyPaid++;
-              continue;
-            }
-
-            // Get current balance
-            const balance = await getAccountBalance(userId, email);
-            console.log(`calculate_interest(${name}): Account Balance $${balance}`);
-
-            // Calculate interest (only if balance > 0)
-            if (balance <= 0) {
-              console.log(`calculate_interest(${name}): No balance ($${balance}), skipping interest`);
-              results.skippedZeroBalance++;
-              continue;
-            }
-
-            const interestPayment = balance * interestRate;
-            const interestAmountRounded = Math.round(interestPayment * 100) / 100;
-            console.log(`calculate_interest(${name}): Interest to pay $${interestAmountRounded} on balance $${balance}`);
-
-            if (interestAmountRounded > 0.01) { // Only process if interest is at least 1 cent
-              // Use transaction for atomicity
-              const batch = db.batch();
-              
-              // Create interest transaction
-              const transactionRef = db.collection('transactions').doc();
-              const newTransaction = {
-                user_id: userId,
-                amount: interestAmountRounded,
-                comment: `Monthly Interest Payment - ${(interestRate * 100).toFixed(2)}% on $${balance.toFixed(2)}`,
-                description: `Monthly Interest Payment - ${(interestRate * 100).toFixed(2)}% on $${balance.toFixed(2)}`,
-                transaction_type: 'interest',
-                timestamp: admin.firestore.Timestamp.now(),
-                interest_rate: interestRate * 100,
-                balance_at_calculation: balance,
-                job_id: `interest_${jobStartTime.getTime()}`,
-                processed_by: results.triggeredBy
-              };
-
-              batch.set(transactionRef, newTransaction);
-              
-              // Update account balance cache (only if account exists)
-              const accountRef = db.collection('accounts').doc(email);
-              const accountDoc = await accountRef.get();
-              if (accountDoc.exists) {
-                batch.update(accountRef, {
-                  balance: balance + interestAmountRounded,
-                  lastBalanceUpdate: admin.firestore.Timestamp.now(),
-                  lastInterestPayment: admin.firestore.Timestamp.now(),
-                  lastInterestAmount: interestAmountRounded
-                });
-              } else {
-                console.warn(`Account ${email} not found, skipping balance cache update`);
-              }
-
-              // Commit the batch
-              await batch.commit();
-              
-              results.totalInterestPaid += interestAmountRounded;
-              results.totalProcessed++;
-              
-              // Log to audit system
-              try {
-                await logJobExecution('interest_payment', {
-                  user_id: userId,
-                  user_email: email,
-                  user_name: name,
-                  amount: interestAmountRounded,
-                  balance_before: balance,
-                  balance_after: balance + interestAmountRounded,
-                  interest_rate: interestRate * 100,
-                  transaction_id: transactionRef.id,
-                  job_id: `interest_${jobStartTime.getTime()}`,
-                  triggered_by: results.triggeredBy
-                });
-              } catch (auditError) {
-                console.warn(`Failed to log audit for ${name}:`, auditError);
-              }
-              
-              // Note: Email notifications are handled by monthly statements, not individual interest payments
-              
-              console.log(`✅ Processed interest for ${name}: $${interestAmountRounded}`);
-            } else {
-              console.log(`calculate_interest(${name}): Interest amount too small ($${interestAmountRounded}), skipping`);
-              results.skippedZeroBalance++;
-            }
-          } catch (error) {
-            console.error(`Error processing interest for ${name}:`, error);
-            results.errors.push(`${name}: ${error.message}`);
-          }
-        }
-
-        // Add completion time to results
-        const jobEndTime = new Date();
-        results.endTime = jobEndTime.toISOString();
-        results.executionTimeMs = jobEndTime.getTime() - jobStartTime.getTime();
-        results.executionTimeMinutes = Math.round(results.executionTimeMs / 60000 * 100) / 100;
-
-        // Log the job execution
-        await logJobExecution('calculate_interest', results);
-
-        console.log('Interest calculation completed:', results);
-        console.log(`Execution summary: ${results.totalProcessed} accounts processed, $${results.totalInterestPaid.toFixed(2)} total interest paid in ${results.executionTimeMinutes} minutes`);
-        
-        return {
-          success: true,
-          message: `Interest calculation completed. Processed ${results.totalProcessed} accounts, paid $${results.totalInterestPaid.toFixed(2)} total interest.`,
-          results: results
-        };
-
-      } catch (error) {
-        console.error('Error in calculateInterest function:', error);
-        throw new Error(`Interest calculation failed: ${error.message}`);
-      }
-    }
-);
 
 // Generate and Send Monthly Statements Function
 exports.sendStatements = onCall(
@@ -924,7 +759,7 @@ exports.healthCheck = onRequest(async (req, res) => {
   res.status(200).json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    functions: ['calculateMonthlyInterest', 'sendStatements', 'scheduledPayInterest', 'scheduledSendStatements']
+    functions: ['sendStatements', 'scheduledPayInterest', 'scheduledSendStatements']
   });
 });
 
@@ -946,23 +781,24 @@ exports.scheduledPayInterest = onSchedule({
     const interestResults = [];
     let totalInterestPaid = 0;
     
-    const interestRate = await fetchInterestRate();
+    const interestRate = (await fetchInterestRate()) / 100;
     console.log(`📊 Current interest rate: ${(interestRate * 100).toFixed(2)}%`);
     
     for (const accountDoc of accountsSnapshot.docs) {
       const accountData = accountDoc.data();
-      const userId = accountData.user_id || accountDoc.id;
+      const userId = accountData.user_id;
+      const email = accountDoc.id;  // Email is the document ID
       
       try {
         // Check if interest already paid this month
         const hasInterest = await hasInterestPaidThisMonth(userId);
         if (hasInterest) {
-          console.log(`⏭️ Interest already paid this month for user: ${userId}`);
+          console.log(`⏭️ Interest already paid this month for user: ${userId} (${email})`);
           continue;
         }
         
         // Calculate current balance
-        const balance = await getAccountBalance(userId);
+        const balance = await getAccountBalance(userId, email);
         
         if (balance > 0) {
           const interestAmount = balance * interestRate;
@@ -1077,6 +913,109 @@ exports.scheduledSendStatements = onSchedule({
     throw error;
   }
 });
+
+/**
+ * Send Telegram notification
+ * Cloud Function for sending Telegram notifications to admins about withdrawal requests
+ */
+exports.sendTelegramNotification = onCall(
+  {
+    timeoutSeconds: 540,
+    memory: "256MiB"
+  },
+  async (request) => {
+    try {
+      // 1. Enforce authentication
+      if (!request.auth) {
+        throw new Error('unauthenticated: Must be authenticated to call this function.');
+      }
+      
+      // 2. Enforce authorization (admin only for now)
+      const isAdmin = request.auth.token.administrator === true;
+      if (!isAdmin) {
+        throw new Error('permission-denied: Only admins can send Telegram notifications.');
+      }
+      
+      // 3. Validate required parameters
+      const { message, type } = request.data;
+      
+      if (!message) {
+        throw new Error('missing-parameter: "message" content is required.');
+      }
+      
+      if (!type) {
+        throw new Error('missing-parameter: "type" is required (e.g., withdrawal_request, test).');
+      }
+      
+      // 4. Validate Telegram configuration
+      console.log('🔍 Checking Telegram config:', {
+        hasToken: !!process.env.TELEGRAM_BOT_TOKEN,
+        hasChatId: !!process.env.TELEGRAM_CHAT_ID,
+        chatId: process.env.TELEGRAM_CHAT_ID
+      });
+      
+      if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
+        console.error('❌ Missing Telegram configuration');
+        throw new Error('configuration-error: Telegram credentials not properly configured.');
+      }
+      
+      console.log(`📱 Sending Telegram notification - Type: ${type}`);
+      
+      // 5. Format message with HTML
+      const formattedMessage = `🏦 <b>McDuck Bank Notification</b>
+      
+<b>Type:</b> ${type}
+<b>Time:</b> ${new Date().toLocaleString()}
+
+${message}`;
+      
+      // 6. Send message via Telegram
+      const response = await sendTelegramMessage(formattedMessage);
+      
+      console.log(`✅ Telegram message sent successfully - Message ID: ${response.data.result.message_id}`);
+      
+      // 7. Return success response
+      return {
+        success: true,
+        message: 'Telegram notification sent successfully',
+        messageId: response.data.result.message_id,
+        type: type
+      };
+      
+    } catch (error) {
+      console.error('❌ Error sending Telegram notification:', error);
+      
+      // Handle Telegram API errors
+      if (error.response?.data?.description) {
+        throw new Error(`telegram-error: ${error.response.data.description}`);
+      }
+      
+      // Re-throw other errors with context
+      throw new Error(`telegram-send-failed: ${error.message}`);
+    }
+  }
+);
+
+// Test SMS function with minimal implementation  
+exports.testSMS = onCall(
+  {
+    timeoutSeconds: 540,
+    memory: "256MiB"
+  },
+  async (request) => {
+    try {
+      console.log('✅ Test SMS function called successfully');
+      return {
+        success: true,
+        message: 'Test SMS function works!',
+        data: request.data
+      };
+    } catch (error) {
+      console.error('❌ Error in testSMS:', error);
+      throw error;
+    }
+  }
+);
 
 // Helper function to create and send individual statement
 const createAndSendStatement = async (userId, userEmail) => {
