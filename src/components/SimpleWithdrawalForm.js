@@ -1,17 +1,18 @@
-import { Box, TextField, Button, Paper, Typography } from '@mui/material';
+import { Box, TextField, Button, Paper, Typography, Alert } from '@mui/material';
 import { useState } from 'react';
 
 export default function SimpleWithdrawalForm({ onSubmit }) {
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [submitted, setSubmitted] = useState(false);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (onSubmit) {
       onSubmit({ amount: parseFloat(amount), reason: note });
-    } else {
-      alert(`Request submitted: $${amount} - ${note}`);
     }
+    setSubmitted(true);
+    setTimeout(() => setSubmitted(false), 3000);
   };
 
   return (
@@ -39,14 +40,19 @@ export default function SimpleWithdrawalForm({ onSubmit }) {
           value={note}
           onChange={(e) => setNote(e.target.value)}
         />
-        <Button 
-          type="submit" 
-          variant="contained" 
+        <Button
+          type="submit"
+          variant="contained"
           sx={{ mt: 2 }}
           disabled={!amount}
         >
           Submit Request
         </Button>
+        {submitted && (
+          <Alert severity="success" sx={{ mt: 2 }}>
+            Request submitted: ${amount} - {note}
+          </Alert>
+        )}
       </Box>
     </Paper>
   );

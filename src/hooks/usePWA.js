@@ -56,10 +56,9 @@ export const usePWA = () => {
     const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
     
     if (isIOS && isSafari) {
-      // For iOS Safari, show instructions
+      // For iOS Safari, return instructions string for the component to display
       console.log('📱 iOS Safari - showing install instructions');
-      alert('To install McDuck Bank:\n\n1. Tap the Share button (□↗)\n2. Select "Add to Home Screen"\n3. Tap "Add"');
-      return false;
+      return 'To install McDuck Bank: 1. Tap the Share button 2. Select "Add to Home Screen" 3. Tap "Add"';
     }
 
     if (!deferredPrompt) {

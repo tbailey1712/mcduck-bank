@@ -84,7 +84,6 @@ function TransactionTable() {
 export default function DemoDashboard() {
   const handleWithdrawal = (data) => {
     console.log('Withdrawal requested:', data);
-    alert(`Withdrawal requested: $${data.amount} - ${data.reason}`);
   };
 
   return (

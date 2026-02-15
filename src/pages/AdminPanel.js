@@ -213,11 +213,9 @@ const AdminPanel = () => {
       
       setJobResults({
         type: 'setup',
-        message: results.message,
+        message: results.message + ' Please refresh your browser for changes to take effect.',
         success: true
       });
-
-      alert('Admin privileges set! Please refresh your browser for changes to take effect.');
       
     } catch (error) {
       setJobError(adminCloudFunctions.getErrorMessage(error));
