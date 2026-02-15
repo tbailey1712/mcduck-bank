@@ -43,18 +43,15 @@ const handleSuccess = (data, operation, context = {}) => {
 };
 
 // Permission check utility
-const hasPermission = (authUser, targetUserId, userData = null) => {
+const hasPermission = (authUser, targetUserId) => {
   if (!authUser) return false;
-  
+
   // User can access their own data
   if (authUser.uid === targetUserId) return true;
-  
-  // Admin can access any data
+
+  // Admin can access any data - only trust auth session, not document fields
   if (authUser.administrator || authUser.isAdmin) return true;
-  
-  // Check if target user data indicates admin access
-  if (userData?.administrator) return true;
-  
+
   return false;
 };
 
@@ -133,7 +130,7 @@ export const getUserData = async (identifier, authUser = null) => {
     }
 
     // Check permissions
-    if (authUser && !hasPermission(authUser, docId, userData)) {
+    if (authUser && !hasPermission(authUser, docId)) {
       return handleError(
         new Error('Permission denied'), 
         'getUserData', 
@@ -160,7 +157,7 @@ export const subscribeToUserData = (identifier, onData, authUser = null) => {
           const userData = docSnap.data();
           
           // Check permissions
-          if (authUser && !hasPermission(authUser, identifier, userData)) {
+          if (authUser && !hasPermission(authUser, identifier)) {
             onData(handleError(
               new Error('Permission denied'),
               'subscribeToUserData',

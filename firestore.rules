@@ -8,9 +8,8 @@ service cloud.firestore {
     }
     
     function isAdmin() {
-      return isAuthenticated() && 
-             (request.auth.token.email == 'tony.bailey@gmail.com' ||
-              get(/databases/$(database)/documents/accounts/$(request.auth.token.email)).data.administrator == true);
+      return isAuthenticated() &&
+             request.auth.token.administrator == true;
     }
     
     function isOwner(resource) {
@@ -33,8 +32,8 @@ service cloud.firestore {
     match /accounts/{accountId} {
       // Users can read/update their own account, admins can read all accounts
       allow read: if isAccountOwner(resource) || isAccountOwnerByEmail(accountId) || isAdmin();
-      allow update: if (isAccountOwner(resource) || isAccountOwnerByEmail(accountId) || isAdmin()) && 
-                       request.resource.data.keys().hasAny(['displayName', 'mobile', 'preferences', 'updatedAt', 'balance', 'lastUpdated', 'lastLogin', 'lastIp', 'lastSessionToken']);
+      allow update: if (isAccountOwner(resource) || isAccountOwnerByEmail(accountId) || isAdmin()) &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'mobile', 'preferences', 'updatedAt', 'balance', 'lastUpdated', 'lastLogin', 'lastIp', 'lastSessionToken', 'lastActivity', 'notification_preferences', 'photoURL', 'emailVerified', 'lastMerged', 'previousUserId', 'uid', 'user_id', 'lastBalanceUpdate', 'transactionCount']);
       // Only admins can create accounts
       allow create: if isAdmin();
       // Prevent account deletion

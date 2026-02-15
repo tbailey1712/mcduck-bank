@@ -5,7 +5,12 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 const admin = require("firebase-admin");
 const sgMail = require("@sendgrid/mail");
 const axios = require("axios");
-const cors = require("cors")({ origin: true });
+// Note: onCall functions handle CORS internally via the Firebase SDK.
+// For any future onRequest endpoints, use this CORS middleware:
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",")
+  : ["https://mcduck-bank-2025.web.app", "https://mcduck-bank-2025.firebaseapp.com"];
+const cors = require("cors")({ origin: allowedOrigins });
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -547,7 +552,7 @@ const logJobExecution = async (jobName, results) => {
  * Admin Setup Functions
  */
 
-// One-time admin setup function
+// Admin setup function - requires existing admin privileges
 exports.setupAdmin = onCall(
   {
     timeoutSeconds: 60,
@@ -555,28 +560,46 @@ exports.setupAdmin = onCall(
   },
   async (request) => {
     try {
-      // This function can only be called by authenticated users
       if (!request.auth) {
         throw new Error('unauthenticated: Must be authenticated to call this function.');
       }
-      
-      const userEmail = request.auth.token.email;
-      console.log(`Setting up admin claim for: ${userEmail}`);
-      
-      // Set admin custom claim for the calling user
-      await admin.auth().setCustomUserClaims(request.auth.uid, {
+
+      // SECURITY: Require caller to already be an admin
+      const isAdmin = request.auth.token.administrator === true;
+      if (!isAdmin) {
+        throw new Error('permission-denied: Only existing admins can grant admin privileges.');
+      }
+
+      // Resolve the target user server-side to prevent spoofing
+      let targetUser;
+      if (request.data?.uid) {
+        targetUser = await admin.auth().getUser(request.data.uid);
+      } else if (request.data?.email) {
+        targetUser = await admin.auth().getUserByEmail(request.data.email);
+      } else {
+        targetUser = await admin.auth().getUser(request.auth.uid);
+      }
+
+      const targetUid = targetUser.uid;
+      const targetEmail = targetUser.email;
+      console.log(`Admin ${request.auth.token.email} granting admin claim to: ${targetEmail} (${targetUid})`);
+
+      // Merge with existing claims to avoid overwriting them
+      const existingClaims = targetUser.customClaims || {};
+      await admin.auth().setCustomUserClaims(targetUid, {
+        ...existingClaims,
         administrator: true
       });
-      
-      console.log(`✅ Successfully set administrator claim for ${userEmail}`);
-      
+
+      console.log(`✅ Successfully set administrator claim for ${targetEmail}`);
+
       return {
         success: true,
-        message: `Admin claim set for ${userEmail}. Please refresh your browser to apply changes.`,
-        userEmail: userEmail,
-        uid: request.auth.uid
+        message: `Admin claim set for ${targetEmail}. Please refresh your browser to apply changes.`,
+        userEmail: targetEmail,
+        uid: targetUid
       };
-      
+
     } catch (error) {
       console.error('❌ Error in setupAdmin:', error);
       throw new Error(`Admin setup failed: ${error.message}`);
@@ -756,10 +779,12 @@ exports.sendStatements = onCall(
 
 // Health check endpoint
 exports.healthCheck = onRequest(async (req, res) => {
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    functions: ['sendStatements', 'scheduledPayInterest', 'scheduledSendStatements']
+  cors(req, res, () => {
+    res.status(200).json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      functions: ['sendStatements', 'scheduledPayInterest', 'scheduledSendStatements', 'setupAdmin', 'sendTelegramNotification']
+    });
   });
 });
 
@@ -996,26 +1021,7 @@ ${message}`;
   }
 );
 
-// Test SMS function with minimal implementation  
-exports.testSMS = onCall(
-  {
-    timeoutSeconds: 540,
-    memory: "256MiB"
-  },
-  async (request) => {
-    try {
-      console.log('✅ Test SMS function called successfully');
-      return {
-        success: true,
-        message: 'Test SMS function works!',
-        data: request.data
-      };
-    } catch (error) {
-      console.error('❌ Error in testSMS:', error);
-      throw error;
-    }
-  }
-);
+// testSMS removed - was a debug function that should not be deployed to production
 
 // Helper function to create and send individual statement
 const createAndSendStatement = async (userId, userEmail) => {

@@ -19,6 +19,15 @@ import { selectUser, selectIsAdmin, selectClaims, selectPermissions } from '../s
 import unifiedAuthService from '../services/unifiedAuthService';
 
 const AdminDebugInfo = () => {
+  // SECURITY: Only render in development mode
+  if (process.env.NODE_ENV !== 'development') {
+    return null;
+  }
+
+  return <AdminDebugInfoInner />;
+};
+
+const AdminDebugInfoInner = () => {
   const user = useSelector(selectUser);
   const isAdmin = useSelector(selectIsAdmin);
   const claims = useSelector(selectClaims);

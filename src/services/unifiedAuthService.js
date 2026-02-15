@@ -134,10 +134,16 @@ class UnifiedAuthService {
   }
 
   /**
-   * Simple encryption for session data (not cryptographically secure, but obfuscated)
+   * Encode session data for storage.
+   * Only non-sensitive display data (name, email, admin flag, session timestamps)
+   * should be stored. Sensitive tokens are managed by Firebase Auth directly.
    */
   encryptData(data) {
-    const jsonString = JSON.stringify(data);
+    // Strip sensitive token data before storing
+    const safeData = { ...data };
+    delete safeData.token;
+
+    const jsonString = JSON.stringify(safeData);
     return btoa(encodeURIComponent(jsonString));
   }
 
@@ -146,7 +152,7 @@ class UnifiedAuthService {
       const decoded = decodeURIComponent(atob(encrypted));
       return JSON.parse(decoded);
     } catch (error) {
-      throw new Error('Invalid encrypted data');
+      throw new Error('Invalid session data');
     }
   }
 
@@ -664,6 +670,9 @@ class UnifiedAuthService {
    * Create auth state object
    */
   async createAuthState(firebaseUser, userData, idTokenResult) {
+    // Derive admin status solely from Firebase custom claims, not Firestore document fields
+    const isAdmin = idTokenResult.claims.administrator === true;
+
     return {
       isAuthenticated: true,
       user: {
@@ -671,10 +680,10 @@ class UnifiedAuthService {
         email: userData.email || firebaseUser.email,
         displayName: userData.displayName || firebaseUser.displayName,
         photoURL: userData.photoURL || firebaseUser.photoURL,
-        administrator: userData.administrator || false,
+        administrator: isAdmin,
         emailVerified: firebaseUser.emailVerified
       },
-      isAdmin: userData.administrator || idTokenResult.claims.administrator || false,
+      isAdmin: isAdmin,
       sessionId: this.getSessionId(),
       token: idTokenResult.token,
       tokenExpiration: new Date(idTokenResult.expirationTime).getTime(),

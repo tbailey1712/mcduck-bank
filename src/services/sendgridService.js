@@ -1,6 +1,12 @@
 /**
  * SendGrid Email Service
- * Handles HTML-based email sending with template substitution
+ *
+ * DEPRECATED: This service previously sent emails directly from the client using
+ * REACT_APP_SENDGRID_API_KEY, which exposes the API key in the browser bundle.
+ * All email sending should go through Cloud Functions (adminCloudFunctions.sendEmail).
+ *
+ * Template management and preview functions are still safe to use client-side.
+ * The sendEmail method now logs a warning and returns an error in production.
  */
 
 import { formatCurrency } from '../utils/formatUtils';
@@ -9,12 +15,13 @@ import { sanitizeInput } from '../utils/validation';
 
 class SendGridService {
   constructor() {
-    this.apiKey = process.env.REACT_APP_SENDGRID_API_KEY;
+    // SECURITY: Do NOT use REACT_APP_ prefixed keys - they are embedded in the client bundle
+    this.apiKey = null; // Removed: was process.env.REACT_APP_SENDGRID_API_KEY
     this.apiUrl = 'https://api.sendgrid.com/v3/mail/send';
     this.templatesApiUrl = 'https://api.sendgrid.com/v3/templates';
     this.fromEmail = process.env.REACT_APP_FROM_EMAIL || 'noreply@mcduckbank.com';
     this.fromName = process.env.REACT_APP_FROM_NAME || 'McDuck Bank';
-    
+
     // Local storage key for templates
     this.storageKey = 'mcduck_email_templates';
   }
@@ -101,84 +108,30 @@ class SendGridService {
    */
   async sendEmail({ to, subject, htmlTemplate, substitutions = {}, isTest = false }) {
     try {
-      if (!this.apiKey) {
-        throw new Error('SendGrid API key not configured');
-      }
-
-      // Apply substitutions to the template
-      const processedHtml = this.applySubstitutions(htmlTemplate, substitutions);
-
-      // Prepare SendGrid payload
-      const payload = {
-        personalizations: [{
-          to: [{ email: to }],
-          subject: isTest ? `[TEST] ${subject}` : subject
-        }],
-        from: {
-          email: this.fromEmail,
-          name: this.fromName
-        },
-        content: [{
-          type: 'text/html',
-          value: processedHtml
-        }]
-      };
-
-      // Add test marker to content if this is a test email
-      if (isTest) {
-        payload.content[0].value = `
-          <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin-bottom: 20px; border-radius: 4px;">
-            <strong>🧪 TEST EMAIL</strong> - This is a test message sent from McDuck Bank's messaging system.
-          </div>
-          ${payload.content[0].value}
-        `;
-      }
-
-      console.log('📧 Sending email via SendGrid:', {
-        to,
-        subject: payload.personalizations[0].subject,
-        isTest,
-        hasApiKey: !!this.apiKey
-      });
-
-      // In development, just log the email instead of sending
-      if (process.env.NODE_ENV === 'development') {
-        console.log('📧 [DEV MODE] Email would be sent:', {
-          payload,
-          processedHtml: processedHtml.substring(0, 200) + '...'
-        });
-        
+      // SECURITY: Block direct SendGrid calls from the client in production.
+      // Use adminCloudFunctions.sendEmail() instead, which routes through Cloud Functions.
+      if (process.env.NODE_ENV !== 'development') {
+        console.warn('DEPRECATED: sendgridService.sendEmail() is disabled in production. Use adminCloudFunctions.sendEmail() instead.');
         return {
-          success: true,
-          messageId: `dev_${Date.now()}`,
-          message: 'Email logged in development mode'
+          success: false,
+          error: 'Client-side email sending is disabled. Use Cloud Functions.',
+          message: 'Email sending must go through Cloud Functions for security.'
         };
       }
 
-      // Send via SendGrid API
-      const response = await fetch(this.apiUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
+      // Development mode: apply substitutions and log the email
+      const processedHtml = this.applySubstitutions(htmlTemplate, substitutions);
+
+      console.log('[DEV MODE] Email would be sent:', {
+        to,
+        subject: isTest ? `[TEST] ${subject}` : subject,
+        processedHtml: processedHtml.substring(0, 200) + '...'
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`SendGrid API error: ${response.status} ${errorText}`);
-      }
-
-      const responseHeaders = response.headers;
-      const messageId = responseHeaders.get('x-message-id');
-
-      console.log('✅ Email sent successfully:', { messageId, to, subject });
 
       return {
         success: true,
-        messageId,
-        message: 'Email sent successfully'
+        messageId: `dev_${Date.now()}`,
+        message: 'Email logged in development mode'
       };
 
     } catch (error) {
