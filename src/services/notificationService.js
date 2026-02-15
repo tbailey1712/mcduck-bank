@@ -98,7 +98,7 @@ class NotificationService {
 
   async saveTokenToDatabase(userId, token) {
     try {
-      const userRef = doc(db, 'users', userId);
+      const userRef = doc(db, 'accounts', userId);
       
       // Use setDoc with merge to update existing doc or create if it doesn't exist
       await setDoc(userRef, {

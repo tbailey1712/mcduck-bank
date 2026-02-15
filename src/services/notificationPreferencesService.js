@@ -3,7 +3,7 @@
  * Handles reading, writing, and managing user notification preferences in Firestore
  */
 
-import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 import { getDefaultNotificationPreferences, getImplementedNotifications } from '../config/notificationConfig';
 
@@ -81,7 +81,7 @@ class NotificationPreferencesService {
       await updateDoc(accountRef, {
         'notification_preferences': {
           ...preferences,
-          last_updated: new Date()
+          last_updated: serverTimestamp()
         }
       });
 
@@ -108,7 +108,7 @@ class NotificationPreferencesService {
 
       await updateDoc(accountRef, {
         [`notification_preferences.events.${eventType}`]: channels,
-        'notification_preferences.last_updated': new Date()
+        'notification_preferences.last_updated': serverTimestamp()
       });
       
       console.log(`✅ Updated ${eventType} preferences`);
@@ -135,9 +135,9 @@ class NotificationPreferencesService {
       await updateDoc(accountRef, {
         [`notification_preferences.channels.${channel}`]: {
           ...settings,
-          updated_at: new Date()
+          updated_at: serverTimestamp()
         },
-        'notification_preferences.last_updated': new Date()
+        'notification_preferences.last_updated': serverTimestamp()
       });
       
       console.log(`✅ Updated ${channel} settings`);
@@ -162,7 +162,7 @@ class NotificationPreferencesService {
 
       await updateDoc(accountRef, {
         'notification_preferences.enabled': enabled,
-        'notification_preferences.last_updated': new Date()
+        'notification_preferences.last_updated': serverTimestamp()
       });
       
       console.log(`✅ ${enabled ? 'Enabled' : 'Disabled'} all notifications`);
@@ -208,8 +208,7 @@ class NotificationPreferencesService {
       if (needsUpdate) {
         const updatedPrefs = {
           ...currentPrefs,
-          events: updatedEvents,
-          last_updated: new Date()
+          events: updatedEvents
         };
         
         await this.setPreferences(userId, updatedPrefs);
@@ -246,7 +245,7 @@ class NotificationPreferencesService {
           // Create a basic account document
           await setDoc(accountRef, {
             user_id: userId,
-            created_at: new Date(),
+            created_at: serverTimestamp(),
             notification_preferences: getDefaultNotificationPreferences({ email: userId })
           });
           accountDoc = await getDoc(accountRef);
