@@ -48,9 +48,11 @@ const useAccountData = () => {
   const shouldFetchData = hasAccess && targetUserId && !authLoading;
   
   // Always call hooks (hooks must be at top level)
-  // Use email for user data (accounts keyed by email) but UID for transactions (keyed by user_id)
+  // Use email/targetUserId for user data (accounts keyed by email)
   const userData = useUserData(shouldFetchData ? targetUserId : null, user);
-  const transactions = useTransactions(shouldFetchData ? user?.uid : null, user);
+  // Use user_id from the account doc for transactions (keyed by user_id field, which is the UID)
+  const transactionUserId = userData?.userData?.user_id || user?.uid;
+  const transactions = useTransactions(shouldFetchData ? transactionUserId : null, user);
   const transactionSummary = useTransactionSummary(transactions.transactions);
 
   // Handle navigation for access denied

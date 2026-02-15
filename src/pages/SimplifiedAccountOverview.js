@@ -199,43 +199,28 @@ const SimplifiedAccountOverview = () => {
       return;
     }
 
-    // Use targetUserId from URL params
-    const fetchUserData = async () => {
-      try {
-        setLoading(true);
-        const data = await getUserData(targetUserId, user);
-        setUserData(data);
-      } catch (err) {
-        setError('Failed to load user data');
-      } finally {
-        setLoading(false);
-      }
-    };
+    setLoading(true);
 
-    fetchUserData();
-  }, [user, targetUserId]);
-
-  useEffect(() => {
-    if (!user) {
-      setError('Not authenticated');
-      return;
-    }
-
-    // Use targetUserId from URL params  
-    if (!targetUserId) {
-      setError('Invalid user ID');
-      return;
-    }
-
-    // Subscribe to user data
+    // Subscribe to user data (uses email/targetUserId as doc ID)
     const unsubscribeUserData = subscribeToUserData(targetUserId, (updatedData) => {
       if (updatedData) {
         setUserData(updatedData);
+        setLoading(false);
       }
     }, user);
 
-    // Subscribe to transactions
-    const unsubscribeTransactions = subscribeToTransactions(targetUserId, (updatedTransactions) => {
+    return () => {
+      unsubscribeUserData?.();
+    };
+  }, [user, targetUserId]);
+
+  // Subscribe to transactions using user_id (UID) from account doc, not the URL param (email)
+  useEffect(() => {
+    if (!user || !userData?.user_id) return;
+
+    const transactionUserId = userData.user_id;
+
+    const unsubscribeTransactions = subscribeToTransactions(transactionUserId, (updatedTransactions) => {
       if (updatedTransactions) {
         setTransactions(updatedTransactions);
         setTransactionSummary(processTransactionSummary(updatedTransactions));
@@ -243,10 +228,9 @@ const SimplifiedAccountOverview = () => {
     }, user);
 
     return () => {
-      unsubscribeUserData?.();
       unsubscribeTransactions?.();
     };
-  }, [user, targetUserId]);
+  }, [user, userData?.user_id]);
 
   if (loading) return <CircularProgress />;
   if (error) return <Typography color="error">{error}</Typography>;
