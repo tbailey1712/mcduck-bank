@@ -126,20 +126,54 @@ class AdminCloudFunctions {
   }
 
   /**
+   * Send a Telegram notification
+   * Requires admin authentication
+   * @param {string} message - Message content to send
+   * @param {string} type - Notification type (e.g., 'test', 'admin_test', 'withdrawal_request')
+   * @returns {Promise<Object>} Results of Telegram notification
+   */
+  async sendTelegram(message, type) {
+    try {
+      console.log('🔐 Calling secure sendTelegram Cloud Function...', { type });
+
+      // Lazy initialization: create callable function when needed
+      if (!this.sendTelegramFunction) {
+        this.sendTelegramFunction = httpsCallable(functions, 'sendTelegramNotification');
+      }
+
+      const result = await this.sendTelegramFunction({ message, type });
+
+      console.log('✅ Telegram notification sent:', result.data);
+      return result.data;
+    } catch (error) {
+      console.error('❌ Error calling sendTelegram:', error);
+
+      // Handle Firebase Functions errors
+      if (error.code === 'unauthenticated') {
+        throw new Error('You must be logged in to perform this action.');
+      } else if (error.code === 'permission-denied') {
+        throw new Error('You do not have permission to send Telegram notifications. Admin access required.');
+      } else {
+        throw new Error(`Telegram notification failed: ${error.message}`);
+      }
+    }
+  }
+
+  /**
    * One-time setup to grant admin privileges to current user
    * @returns {Promise<Object>} Results of admin setup
    */
   async setupAdmin() {
     try {
       console.log('🔐 Calling setupAdmin Cloud Function...');
-      
+
       // Lazy initialization: create callable function when needed
       if (!this.setupAdminFunction) {
         this.setupAdminFunction = httpsCallable(functions, 'setupAdmin');
       }
-      
+
       const result = await this.setupAdminFunction({});
-      
+
       console.log('✅ Admin setup completed:', result.data);
       return result.data;
     } catch (error) {
