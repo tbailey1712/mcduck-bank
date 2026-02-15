@@ -201,10 +201,23 @@ const SimplifiedAccountOverview = () => {
 
     setLoading(true);
 
-    // Subscribe to user data (uses email/targetUserId as doc ID)
-    const unsubscribeUserData = subscribeToUserData(targetUserId, (updatedData) => {
+    // First try realtime subscription (works when targetUserId is an email/doc ID)
+    const unsubscribeUserData = subscribeToUserData(targetUserId, async (updatedData) => {
       if (updatedData) {
         setUserData(updatedData);
+        setLoading(false);
+      } else {
+        // Doc not found by ID - fall back to getUserData which queries by user_id field
+        try {
+          const fallbackData = await getUserData(targetUserId, user);
+          if (fallbackData) {
+            setUserData(fallbackData);
+          } else {
+            setError('User account not found');
+          }
+        } catch (err) {
+          setError('Failed to load user data');
+        }
         setLoading(false);
       }
     }, user);
