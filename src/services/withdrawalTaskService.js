@@ -1,20 +1,22 @@
-import { 
-  collection, 
-  doc, 
-  addDoc, 
-  updateDoc, 
-  query, 
-  where, 
-  orderBy, 
+import {
+  collection,
+  doc,
+  addDoc,
+  updateDoc,
+  getDoc,
+  query,
+  where,
+  orderBy,
   getDocs,
   onSnapshot,
-  serverTimestamp 
+  serverTimestamp,
+  runTransaction
 } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 import auditService, { AUDIT_EVENTS } from './auditService';
 import serverNotificationService from './serverNotificationService';
 import withdrawalDepositService from './withdrawalDepositService';
-import { addDoc as addTransactionDoc } from 'firebase/firestore';
+import adminCloudFunctions from './adminCloudFunctions';
 
 /**
  * Service for managing withdrawal requests as tasks in Firestore
@@ -31,6 +33,12 @@ class WithdrawalTaskService {
    */
   async createWithdrawalRequest(requestData, user) {
     try {
+      // Validate amount
+      const amount = requestData.amount;
+      if (typeof amount !== 'number' || isNaN(amount) || !isFinite(amount) || amount <= 0) {
+        return { success: false, error: 'Invalid withdrawal amount. Must be a positive number.' };
+      }
+
       const taskData = {
         user_id: user.uid,
         user_email: user.email,
@@ -57,6 +65,24 @@ class WithdrawalTaskService {
           created_at: new Date()
         }
       );
+
+      // Send Telegram notification to admin
+      try {
+        const message = `🏦 New Withdrawal Request
+
+Customer: ${taskData.user_name}
+Email: ${taskData.user_email}
+Amount: $${taskData.amount.toFixed(2)}
+Description: ${taskData.description || 'No description'}
+
+Please review in the admin panel.`;
+
+        await adminCloudFunctions.sendTelegram(message, 'admin_withdrawal_request');
+        console.log('✅ Telegram notification sent for withdrawal request:', docRef.id);
+      } catch (notificationError) {
+        console.warn('⚠️ Failed to send Telegram notification for withdrawal request:', notificationError);
+        // Don't fail the whole request if notification fails
+      }
 
       console.log('✅ Withdrawal request created:', docRef.id);
       return { success: true, taskId: docRef.id };
@@ -204,7 +230,20 @@ class WithdrawalTaskService {
   async cancelWithdrawalRequest(taskId, user) {
     try {
       const taskRef = doc(this.tasksCollection, taskId);
-      
+
+      // Verify ownership and status before cancelling
+      const taskSnap = await getDoc(taskRef);
+      if (!taskSnap.exists()) {
+        return { success: false, error: 'Withdrawal request not found.' };
+      }
+      const taskData = taskSnap.data();
+      if (taskData.user_id !== user.uid) {
+        return { success: false, error: 'You can only cancel your own withdrawal requests.' };
+      }
+      if (taskData.status !== 'pending') {
+        return { success: false, error: `Cannot cancel a request that is already ${taskData.status}.` };
+      }
+
       await updateDoc(taskRef, {
         status: 'cancelled',
         cancelled_at: serverTimestamp(),
@@ -237,43 +276,62 @@ class WithdrawalTaskService {
   async approveWithdrawalRequest(taskId, adminUser) {
     try {
       const taskRef = doc(this.tasksCollection, taskId);
-      
-      // First, get the task data
-      const taskDoc = await getDocs(query(this.tasksCollection, where('__name__', '==', taskId)));
-      if (taskDoc.empty) {
-        throw new Error('Withdrawal request not found');
+
+      // Read task and verify status
+      const taskSnap = await getDoc(taskRef);
+      if (!taskSnap.exists()) {
+        return { success: false, error: 'Withdrawal request not found.' };
       }
-      
-      const taskData = { id: taskId, ...taskDoc.docs[0].data() };
+      const taskData = { id: taskId, ...taskSnap.data() };
+      if (taskData.status !== 'pending') {
+        return { success: false, error: `Cannot approve a request that is already ${taskData.status}.` };
+      }
 
-      // Create the actual withdrawal transaction
-      const transactionData = {
-        user_id: taskData.user_id,
-        amount: taskData.amount,
-        transaction_type: 'withdrawal',
-        description: taskData.description || 'Approved withdrawal request',
-        comment: taskData.description || 'Approved withdrawal request',
-        timestamp: serverTimestamp(),
-        approved_by: adminUser.uid,
-        approved_at: serverTimestamp(),
-        task_id: taskId
-      };
+      // Use a Firestore transaction to atomically create the withdrawal + update the task
+      const transactionRef = await runTransaction(db, async (txn) => {
+        // Re-read inside transaction for consistency
+        const freshSnap = txn.get(taskRef);
+        // runTransaction's txn.get returns a promise
+        const snap = await freshSnap;
+        if (!snap.exists() || snap.data().status !== 'pending') {
+          throw new Error('Request is no longer pending.');
+        }
 
-      const transactionRef = await addTransactionDoc(this.transactionsCollection, transactionData);
+        const newTransactionRef = doc(this.transactionsCollection);
+        txn.set(newTransactionRef, {
+          user_id: taskData.user_id,
+          amount: taskData.amount,
+          transaction_type: 'withdrawal',
+          description: taskData.description || 'Approved withdrawal request',
+          comment: taskData.description || 'Approved withdrawal request',
+          timestamp: serverTimestamp(),
+          approved_by: adminUser.uid,
+          approved_at: serverTimestamp(),
+          task_id: taskId
+        });
 
-      // Update task status
-      await updateDoc(taskRef, {
-        status: 'approved',
-        approved_at: serverTimestamp(),
-        approved_by: adminUser.uid,
-        transaction_id: transactionRef.id,
-        updated_at: serverTimestamp()
+        txn.update(taskRef, {
+          status: 'approved',
+          approved_at: serverTimestamp(),
+          approved_by: adminUser.uid,
+          transaction_id: newTransactionRef.id,
+          updated_at: serverTimestamp()
+        });
+
+        return newTransactionRef;
       });
 
       // Create house deposit for the withdrawal
       try {
         await withdrawalDepositService.createHouseDeposit(
-          { ...transactionData, id: transactionRef.id },
+          {
+            id: transactionRef.id,
+            user_id: taskData.user_id,
+            amount: taskData.amount,
+            transaction_type: 'withdrawal',
+            description: taskData.description || 'Approved withdrawal request',
+            timestamp: new Date()
+          },
           transactionRef.id,
           { 
             uid: taskData.user_id,
@@ -326,14 +384,16 @@ class WithdrawalTaskService {
   async rejectWithdrawalRequest(taskId, adminUser, rejectionReason = '') {
     try {
       const taskRef = doc(this.tasksCollection, taskId);
-      
-      // Get task data for notification
-      const taskDoc = await getDocs(query(this.tasksCollection, where('__name__', '==', taskId)));
-      if (taskDoc.empty) {
-        throw new Error('Withdrawal request not found');
+
+      // Read task and verify status
+      const taskSnap = await getDoc(taskRef);
+      if (!taskSnap.exists()) {
+        return { success: false, error: 'Withdrawal request not found.' };
       }
-      
-      const taskData = { id: taskId, ...taskDoc.docs[0].data() };
+      const taskData = { id: taskId, ...taskSnap.data() };
+      if (taskData.status !== 'pending') {
+        return { success: false, error: `Cannot reject a request that is already ${taskData.status}.` };
+      }
 
       await updateDoc(taskRef, {
         status: 'rejected',
