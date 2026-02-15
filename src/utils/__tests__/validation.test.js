@@ -11,7 +11,8 @@ import {
 
 describe('Input Sanitization', () => {
   test('sanitizeInput removes dangerous characters', () => {
-    expect(sanitizeInput('<script>alert("xss")</script>')).toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;&#x2F;script&gt;');
+    // DOMPurify strips HTML tags (ALLOWED_TAGS: []), keeping text content
+    expect(sanitizeInput('<script>alert("xss")</script>')).toBe('alert("xss")');
     expect(sanitizeInput('Normal text 123')).toBe('Normal text 123');
     expect(sanitizeInput('')).toBe('');
   });

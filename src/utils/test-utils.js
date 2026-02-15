@@ -20,7 +20,7 @@ const theme = createTheme({
 });
 
 // Create a test store
-const createTestStore = (preloadedState = {}) => {
+export const createTestStore = (preloadedState = {}) => {
   return configureStore({
     reducer: {
       auth: authReducer,

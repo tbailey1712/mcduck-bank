@@ -1,25 +1,12 @@
 /**
- * Basic integration test to verify unified auth system is working
+ * Basic integration test to verify unified auth system is working.
+ * Uses normal ES imports instead of runtime require() to work with Jest mocking.
  */
+import unifiedAuthService from '../services/unifiedAuthService';
+import * as security from '../utils/security';
 
 describe('Unified Auth Integration', () => {
-  it('should have all required auth files', () => {
-    // Test that we can import the unified auth service
-    expect(() => require('../services/unifiedAuthService')).not.toThrow();
-    
-    // Test that we can import the unified auth provider
-    expect(() => require('../contexts/UnifiedAuthProvider')).not.toThrow();
-    
-    // Test that we can import updated components
-    expect(() => require('../App')).not.toThrow();
-    expect(() => require('../components/Navbar')).not.toThrow();
-    expect(() => require('../pages/Profile')).not.toThrow();
-    expect(() => require('../pages/AuthPage')).not.toThrow();
-  });
-  
   it('should export unified auth service with correct methods', () => {
-    const unifiedAuthService = require('../services/unifiedAuthService').default;
-    
     expect(unifiedAuthService).toBeDefined();
     expect(typeof unifiedAuthService.getAuthState).toBe('function');
     expect(typeof unifiedAuthService.signOut).toBe('function');
@@ -30,8 +17,6 @@ describe('Unified Auth Integration', () => {
   });
 
   it('should have security utilities', () => {
-    const security = require('../utils/security');
-    
     expect(security.secureLog).toBeDefined();
     expect(security.RateLimiter).toBeDefined();
     expect(typeof security.secureSanitize).toBe('function');

@@ -4,13 +4,14 @@ describe('transactionService', () => {
   describe('processTransactions', () => {
     test('processes empty transaction array', () => {
       const result = processTransactions([]);
-      
+
       expect(result).toEqual({
         deposits: 0,
         withdrawals: 0,
         serviceCharges: 0,
         interests: 0,
         balance: 0,
+        totalTransactions: 0,
       });
     });
 
@@ -251,6 +252,7 @@ describe('transactionService', () => {
         serviceCharges: 0,
         interests: 0,
         balance: 0,
+        totalTransactions: 0,
       });
 
       expect(processTransactions(undefined)).toEqual({
@@ -259,6 +261,7 @@ describe('transactionService', () => {
         serviceCharges: 0,
         interests: 0,
         balance: 0,
+        totalTransactions: 0,
       });
     });
 

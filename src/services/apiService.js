@@ -475,6 +475,10 @@ export const getAllTransactions = async (authUser, options = {}) => {
  */
 
 export const processTransactionSummary = (transactions) => {
+  if (!transactions || transactions.length === 0) {
+    return { deposits: 0, withdrawals: 0, serviceCharges: 0, interests: 0, balance: 0, totalTransactions: 0 };
+  }
+
   const summary = {
     deposits: 0,
     withdrawals: 0,
@@ -483,10 +487,6 @@ export const processTransactionSummary = (transactions) => {
     balance: 0,
     totalTransactions: transactions.length
   };
-
-  if (!transactions || transactions.length === 0) {
-    return summary;
-  }
 
   // Sort transactions chronologically for balance calculation
   const sortedTransactions = [...transactions].sort((a, b) => {

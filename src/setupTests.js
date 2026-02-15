@@ -1,7 +1,24 @@
 // jest-dom adds custom jest matchers for asserting on DOM nodes.
 import '@testing-library/jest-dom';
 
-// Mock Firebase
+// Polyfill TextEncoder/TextDecoder for react-router v7 (uses them internally)
+const { TextEncoder, TextDecoder } = require('util');
+if (!global.TextEncoder) global.TextEncoder = TextEncoder;
+if (!global.TextDecoder) global.TextDecoder = TextDecoder;
+
+// Polyfill window.crypto for code that uses crypto.getRandomValues
+if (!window.crypto) {
+  const nodeCrypto = require('crypto');
+  window.crypto = {
+    getRandomValues: (arr) => nodeCrypto.randomFillSync(arr),
+    subtle: {},
+    randomUUID: () => nodeCrypto.randomUUID(),
+  };
+}
+
+// Mock Firebase config (local module).
+// Firebase SDK packages (firebase/firestore, firebase/auth, etc.) and dompurify
+// are redirected to mocks via moduleNameMapper in craco.config.js.
 jest.mock('./config/firebaseConfig', () => require('./__mocks__/firebase'));
 
 // Mock environment configuration
@@ -31,6 +48,35 @@ jest.mock('./config/environment', () => ({
     buildDate: '2024-01-01T00:00:00Z',
   },
 }));
+
+// Mock HTMLCanvasElement (unifiedAuthService uses canvas for browser fingerprinting)
+HTMLCanvasElement.prototype.getContext = jest.fn(() => ({
+  fillText: jest.fn(),
+  measureText: jest.fn(() => ({ width: 0 })),
+  fillRect: jest.fn(),
+  clearRect: jest.fn(),
+  getImageData: jest.fn(() => ({ data: new Uint8Array(0) })),
+  putImageData: jest.fn(),
+  createImageData: jest.fn(),
+  setTransform: jest.fn(),
+  drawImage: jest.fn(),
+  save: jest.fn(),
+  restore: jest.fn(),
+  beginPath: jest.fn(),
+  moveTo: jest.fn(),
+  lineTo: jest.fn(),
+  closePath: jest.fn(),
+  stroke: jest.fn(),
+  translate: jest.fn(),
+  scale: jest.fn(),
+  rotate: jest.fn(),
+  arc: jest.fn(),
+  fill: jest.fn(),
+  font: '',
+  textBaseline: '',
+  textAlign: '',
+}));
+HTMLCanvasElement.prototype.toDataURL = jest.fn(() => 'data:image/png;base64,mockdata');
 
 // Mock IntersectionObserver
 global.IntersectionObserver = class IntersectionObserver {
