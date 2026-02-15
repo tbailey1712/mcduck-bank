@@ -89,7 +89,7 @@ describe('WithdrawalForm', () => {
 
     await waitFor(() => {
       expect(amountInput.value).toBe('');
-      expect(reasonInput.value).toBe('');
     });
+    expect(reasonInput.value).toBe('');
   });
 });

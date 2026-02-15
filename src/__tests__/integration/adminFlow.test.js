@@ -57,9 +57,9 @@ jest.mock('react-router-dom', () => {
   };
 });
 
-// Import after mocks
-import AdminDashboard from '../../pages/AdminDashboard';
-import AdminPanel from '../../pages/AdminPanel';
+// Import after mocks - must come after jest.mock() calls
+import AdminDashboard from '../../pages/AdminDashboard'; // eslint-disable-line import/first
+import AdminPanel from '../../pages/AdminPanel'; // eslint-disable-line import/first
 
 describe('Admin Flow Integration', () => {
   beforeEach(() => {
@@ -208,10 +208,10 @@ describe('Admin Flow Integration', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('transaction-form')).toBeInTheDocument();
-        expect(screen.getByTestId('customer-list')).toBeInTheDocument();
-        expect(screen.getByTestId('system-config')).toBeInTheDocument();
-        expect(screen.getByTestId('admin-jobs')).toBeInTheDocument();
       });
+      expect(screen.getByTestId('customer-list')).toBeInTheDocument();
+      expect(screen.getByTestId('system-config')).toBeInTheDocument();
+      expect(screen.getByTestId('admin-jobs')).toBeInTheDocument();
     });
   });
 
