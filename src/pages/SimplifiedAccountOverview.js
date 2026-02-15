@@ -18,6 +18,7 @@ const SimplifiedAccountOverview = () => {
   const [transactionSummary, setTransactionSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [resolvedDocId, setResolvedDocId] = useState(null);
 
   const isAdmin = user?.administrator || user?.isAdmin;
 
@@ -201,17 +202,20 @@ const SimplifiedAccountOverview = () => {
 
     setLoading(true);
 
-    // First try realtime subscription (works when targetUserId is an email/doc ID)
+    // Try realtime subscription (works when targetUserId is an email/doc ID)
     const unsubscribeUserData = subscribeToUserData(targetUserId, async (updatedData) => {
       if (updatedData) {
         setUserData(updatedData);
+        setResolvedDocId(targetUserId);
         setLoading(false);
       } else {
-        // Doc not found by ID - fall back to getUserData which queries by user_id field
+        // Doc not found by ID (UID used instead of email) - resolve the real doc ID
         try {
           const fallbackData = await getUserData(targetUserId, user);
           if (fallbackData) {
             setUserData(fallbackData);
+            // fallbackData.id is the actual doc ID (email) - store it for realtime sub
+            setResolvedDocId(fallbackData.id);
           } else {
             setError('User account not found');
           }
@@ -226,6 +230,19 @@ const SimplifiedAccountOverview = () => {
       unsubscribeUserData?.();
     };
   }, [user, targetUserId]);
+
+  // Once we resolve the real doc ID, subscribe for realtime user data updates
+  useEffect(() => {
+    if (!user || !resolvedDocId || resolvedDocId === targetUserId) return;
+
+    const unsubscribe = subscribeToUserData(resolvedDocId, (updatedData) => {
+      if (updatedData) {
+        setUserData(updatedData);
+      }
+    }, user);
+
+    return () => unsubscribe?.();
+  }, [user, resolvedDocId, targetUserId]);
 
   // Subscribe to transactions using user_id (UID) from account doc, not the URL param (email)
   useEffect(() => {
