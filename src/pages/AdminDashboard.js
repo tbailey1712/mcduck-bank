@@ -4,6 +4,8 @@ import { db } from '../config/firebaseConfig';
 import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { setPendingApprovals } from '../store/slices/transactionsSlice';
+import TelegramTestPanel from '../components/TelegramTestPanel';
+import AdminDebugInfo from '../components/AdminDebugInfo';
 
 const AdminDashboard = () => {
   const dispatch = useDispatch();
@@ -85,6 +87,10 @@ const AdminDashboard = () => {
         Transaction Management
       </Typography>
       {/* Add transaction management UI here */}
+
+      <TelegramTestPanel />
+
+      <AdminDebugInfo />
     </Container>
   );
 };

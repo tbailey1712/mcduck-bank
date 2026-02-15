@@ -12,6 +12,8 @@ import CustomerList from '../components/CustomerList';
 import SystemConfiguration from '../components/SystemConfiguration';
 import AdminJobs from '../components/AdminJobs';
 import TransactionForm from '../components/TransactionForm';
+import TelegramTestPanel from '../components/TelegramTestPanel';
+import AdminDebugInfo from '../components/AdminDebugInfo';
 import withdrawalTaskService from '../services/withdrawalTaskService';
 import withdrawalDepositService from '../services/withdrawalDepositService';
 import serverNotificationService from '../services/serverNotificationService';
@@ -548,6 +550,10 @@ const AdminPanel = () => {
         error={jobError}
         results={jobResults}
       />
+
+      <TelegramTestPanel />
+
+      <AdminDebugInfo />
     </Container>
   );
 };

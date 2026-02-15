@@ -15,7 +15,7 @@ import {
   CircularProgress
 } from '@mui/material';
 import { useSelector } from 'react-redux';
-import { selectUser, selectIsAdmin, selectClaims, selectPermissions } from '../store/selectors';
+import { selectUser, selectIsAdmin } from '../store/selectors';
 import unifiedAuthService from '../services/unifiedAuthService';
 
 const AdminDebugInfo = () => {
@@ -30,8 +30,7 @@ const AdminDebugInfo = () => {
 const AdminDebugInfoInner = () => {
   const user = useSelector(selectUser);
   const isAdmin = useSelector(selectIsAdmin);
-  const claims = useSelector(selectClaims);
-  const permissions = useSelector(selectPermissions);
+  const auth = useSelector((state) => state.auth);
   
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -128,21 +127,10 @@ const AdminDebugInfoInner = () => {
 
       <Box sx={{ mb: 2 }}>
         <Typography variant="subtitle2" color="primary">
-          Firebase Custom Claims:
+          Auth State:
         </Typography>
         <Typography variant="body2" component="pre" sx={{ fontSize: '0.8rem', overflow: 'auto' }}>
-          {JSON.stringify(claims, null, 2)}
-        </Typography>
-      </Box>
-
-      <Divider sx={{ my: 2 }} />
-
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="subtitle2" color="primary">
-          Permissions:
-        </Typography>
-        <Typography variant="body2" component="pre" sx={{ fontSize: '0.8rem', overflow: 'auto' }}>
-          {JSON.stringify(permissions, null, 2)}
+          {JSON.stringify({ isAdmin: auth?.isAdmin, isAuthenticated: auth?.isAuthenticated, user: auth?.user }, null, 2)}
         </Typography>
       </Box>
 
