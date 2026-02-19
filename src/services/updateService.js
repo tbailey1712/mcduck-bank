@@ -60,7 +60,7 @@ class UpdateService {
 
       if (serverBuildNumber && serverBuildNumber !== this.currentBuildNumber) {
         console.log('🆕 New build available:', serverBuildNumber);
-        this.promptForUpdate(buildInfo);
+        this.applyUpdate(buildInfo);
       } else {
         console.log('✅ App is up to date');
       }
@@ -98,9 +98,34 @@ class UpdateService {
   }
 
   /**
-   * Prompt user for app update
+   * Auto-apply update: clear caches and reload.
+   * Falls back to a banner prompt if we already reloaded recently (loop guard).
+   */
+  applyUpdate(buildInfo) {
+    const GUARD_KEY = 'mcduck_last_auto_reload';
+    const GUARD_WINDOW_MS = 60 * 1000; // 60 seconds
+
+    const lastReload = Number(sessionStorage.getItem(GUARD_KEY) || 0);
+    const now = Date.now();
+
+    if (now - lastReload < GUARD_WINDOW_MS) {
+      // Already reloaded recently — show banner instead to avoid loop
+      console.warn('Auto-reload loop guard triggered, showing banner');
+      this.promptForUpdate(buildInfo);
+      return;
+    }
+
+    console.log('Auto-applying update, clearing caches and reloading...');
+    sessionStorage.setItem(GUARD_KEY, String(now));
+    this.forceUpdate();
+  }
+
+  /**
+   * Prompt user for app update (fallback when auto-reload didn't pick up new build)
    */
   promptForUpdate(buildInfo) {
+    // Prevent duplicate banners
+    if (document.getElementById('mcduck-update-banner')) return;
     const updateBanner = this.createUpdateBanner(buildInfo);
     document.body.appendChild(updateBanner);
   }
@@ -118,6 +143,7 @@ class UpdateService {
    */
   createUpdateBanner(buildInfo) {
     const banner = document.createElement('div');
+    banner.id = 'mcduck-update-banner';
     banner.style.cssText = `
       position: fixed;
       top: 64px;
@@ -137,17 +163,20 @@ class UpdateService {
       <div style="display: flex; align-items: center; justify-content: space-between; max-width: 600px; margin: 0 auto;">
         <span>🆕 New version available (${buildInfo.buildNumber})</span>
         <div>
-          <button onclick="this.parentElement.parentElement.parentElement.remove()" 
+          <button id="update-later-btn"
                   style="background: transparent; border: 1px solid white; color: white; padding: 4px 12px; margin-right: 8px; border-radius: 4px; cursor: pointer;">
             Later
           </button>
-          <button onclick="window.location.reload()" 
+          <button id="update-now-btn"
                   style="background: white; border: none; color: #1976d2; padding: 4px 12px; border-radius: 4px; font-weight: bold; cursor: pointer;">
             Update Now
           </button>
         </div>
       </div>
     `;
+
+    banner.querySelector('#update-later-btn').addEventListener('click', () => banner.remove());
+    banner.querySelector('#update-now-btn').addEventListener('click', () => this.forceUpdate());
 
     return banner;
   }
@@ -189,9 +218,9 @@ class UpdateService {
    * Force app update
    */
   async forceUpdate() {
-    console.log('🔄 Forcing app update...');
-    
-    // Clear all caches
+    console.log('Forcing app update...');
+
+    // Clear all Cache Storage (service worker caches)
     if ('caches' in window) {
       const cacheNames = await caches.keys();
       await Promise.all(cacheNames.map(name => caches.delete(name)));
@@ -203,8 +232,15 @@ class UpdateService {
       await Promise.all(registrations.map(reg => reg.unregister()));
     }
 
-    // Reload the page
-    window.location.reload(true);
+    // Fetch fresh index.html with cache: 'reload' to bypass AND update the browser HTTP cache.
+    // window.location.reload(true) is deprecated and ignored by modern browsers.
+    try {
+      await fetch(window.location.href, { cache: 'reload' });
+    } catch (e) {
+      // Fetch failed (offline, etc.) — still try the reload
+    }
+
+    window.location.reload();
   }
 
   /**

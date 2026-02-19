@@ -17,25 +17,28 @@ service cloud.firestore {
              resource.data.user_id == request.auth.uid;
     }
     
-    function isAccountOwner(resource) {
-      return isAuthenticated() && 
-             (resource.data.email == request.auth.token.email ||
-              resource.data.user_id == request.auth.uid);
+    // Account docs are keyed by UID, so doc ID == auth UID for owners
+    function isAccountOwner(accountId) {
+      return isAuthenticated() && accountId == request.auth.uid;
     }
     
-    function isAccountOwnerByEmail(documentId) {
-      return isAuthenticated() && 
-             documentId == request.auth.token.email;
-    }
-    
-    // Account collection rules
+    // Account collection rules (docs keyed by UID)
     match /accounts/{accountId} {
-      // Users can read/update their own account, admins can read all accounts
-      allow read: if isAccountOwner(resource) || isAccountOwnerByEmail(accountId) || isAdmin();
-      allow update: if (isAccountOwner(resource) || isAccountOwnerByEmail(accountId) || isAdmin()) &&
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'mobile', 'preferences', 'updatedAt', 'balance', 'lastUpdated', 'lastLogin', 'lastIp', 'lastSessionToken', 'lastActivity', 'notification_preferences', 'photoURL', 'emailVerified', 'lastMerged', 'previousUserId', 'uid', 'user_id', 'lastBalanceUpdate', 'transactionCount']);
-      // Only admins can create accounts
+      // Users can read their own account, admins can read all
+      allow read: if isAccountOwner(accountId) || isAdmin();
+
+      // Users can only update safe profile fields on their own account
+      allow update: if isAccountOwner(accountId) &&
+                       request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['displayName', 'mobile', 'preferences', 'updatedAt',
+                                 'notification_preferences', 'notifications', 'photoURL']);
+
+      // Admin can update any field (Cloud Functions use Admin SDK and bypass rules)
+      allow update: if isAdmin();
+
+      // Account creation only via Cloud Function (Admin SDK) or admin
       allow create: if isAdmin();
+
       // Prevent account deletion
       allow delete: if false;
     }
@@ -44,14 +47,14 @@ service cloud.firestore {
     match /transactions/{transactionId} {
       // Users can read their own transactions, admins can read all
       allow read: if isOwner(resource) || isAdmin();
-      
-      // Users can create transactions for themselves, admins can create for any user
-      allow create: if isAuthenticated() && 
-                       (request.resource.data.user_id == request.auth.uid || isAdmin());
-      
+
+      // Only admins can create transactions
+      // Users submit withdrawal_tasks which admins approve; system creates transactions via Cloud Functions
+      allow create: if isAdmin();
+
       // Only admins can update transactions (for approval/rejection)
       allow update: if isAdmin();
-      
+
       // Only admins can delete transactions
       allow delete: if isAdmin();
     }

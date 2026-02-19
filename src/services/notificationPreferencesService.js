@@ -225,43 +225,39 @@ class NotificationPreferencesService {
   
   /**
    * Find account document for user
-   * @param {string} userId - User ID (email address for this app)
+   * @param {string} userId - User ID (UID)
    * @param {boolean} createIfNotFound - Create account document if not found
    * @returns {Object} - Account reference and document
    */
   async findUserAccount(userId, createIfNotFound = false) {
-    // Try direct document lookup first (using email as document ID)
+    // Direct document lookup by UID (accounts are keyed by UID)
     let accountRef = doc(db, 'accounts', userId);
     let accountDoc = await getDoc(accountRef);
-    
+
     if (!accountDoc.exists()) {
-      // Try to find account by user_id field
+      // Fallback: try by email field for accounts not yet migrated
       const accountsRef = collection(db, 'accounts');
-      const q = query(accountsRef, where('user_id', '==', userId));
+      const q = query(accountsRef, where('email', '==', userId));
       const querySnapshot = await getDocs(q);
-      
-      if (querySnapshot.empty) {
-        if (createIfNotFound) {
-          // Create a basic account document
-          await setDoc(accountRef, {
-            user_id: userId,
-            created_at: serverTimestamp(),
-            notification_preferences: getDefaultNotificationPreferences({ email: userId })
-          });
-          accountDoc = await getDoc(accountRef);
-          console.log('✅ Created account document for user:', userId);
-        } else {
-          console.error('🚨 Account not found for user:', userId);
-          throw new Error(`Account not found for user: ${userId}`);
-        }
-      } else {
-        // Use the first matching account
+
+      if (!querySnapshot.empty) {
         const firstDoc = querySnapshot.docs[0];
         accountRef = doc(db, 'accounts', firstDoc.id);
         accountDoc = firstDoc;
+      } else if (createIfNotFound) {
+        await setDoc(accountRef, {
+          user_id: userId,
+          created_at: serverTimestamp(),
+          notification_preferences: getDefaultNotificationPreferences({ email: userId })
+        });
+        accountDoc = await getDoc(accountRef);
+        console.log('Created account document for user:', userId);
+      } else {
+        console.error('Account not found for user:', userId);
+        throw new Error(`Account not found for user: ${userId}`);
       }
     }
-    
+
     return { accountRef, accountDoc };
   }
 

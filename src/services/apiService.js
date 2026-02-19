@@ -46,10 +46,10 @@ const handleSuccess = (data, operation, context = {}) => {
 const hasPermission = (authUser, targetUserId) => {
   if (!authUser) return false;
 
-  // User can access their own data
+  // User can access their own data (account docs are keyed by UID)
   if (authUser.uid === targetUserId) return true;
 
-  // Admin can access any data - only trust auth session, not document fields
+  // Admin can access any data
   if (authUser.administrator || authUser.isAdmin) return true;
 
   return false;

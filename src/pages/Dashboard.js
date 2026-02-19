@@ -1,13 +1,12 @@
 import { Container, Typography } from '@mui/material';
 import { useDispatch } from 'react-redux';
 import { db, auth } from '../config/firebaseConfig';
-import { collection, getDocs, addDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
-import { addTransaction, setTransactions } from '../store/slices/transactionsSlice';
+import { setTransactions } from '../store/slices/transactionsSlice';
 import WithdrawalForm from '../components/WithdrawalForm';
 import { setError } from '../store/slices/authSlice';
-import auditService, { AUDIT_EVENTS } from '../services/auditService';
-import withdrawalDepositService from '../services/withdrawalDepositService';
+import withdrawalTaskService from '../services/withdrawalTaskService';
 
 const Dashboard = () => {
   const dispatch = useDispatch();
@@ -15,36 +14,40 @@ const Dashboard = () => {
   const [withdrawalError, setWithdrawalError] = useState('');
   const [userBalance, setUserBalance] = useState(null);
 
-  const transactionsRef = collection(db, 'transactions');
-
   useEffect(() => {
     const fetchTransactions = async () => {
+      if (!auth.currentUser) return;
+
       try {
-        const querySnapshot = await getDocs(transactionsRef);
+        // Only fetch the current user's transactions
+        const transactionsRef = collection(db, 'transactions');
+        const userQuery = query(transactionsRef, where('user_id', '==', auth.currentUser.uid));
+        const querySnapshot = await getDocs(userQuery);
         const transactions = querySnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
         }));
         dispatch(setTransactions(transactions));
-        
-        // Calculate user balance (simplified - in real app, get from account data)
-        const userTransactions = transactions.filter(t => t.userId === auth.currentUser?.uid);
-        const balance = userTransactions.reduce((sum, t) => {
-          return t.transaction_type === 'deposit' ? sum + t.amount : sum - t.amount;
+
+        // Calculate user balance from their transactions
+        const balance = transactions.reduce((sum, t) => {
+          if (['deposit', 'interest'].includes(t.transaction_type)) {
+            return sum + (t.amount || 0);
+          } else if (['withdrawal', 'service_charge', 'bankfee'].includes(t.transaction_type)) {
+            return sum - (t.amount || 0);
+          }
+          return sum;
         }, 0);
         setUserBalance(Math.max(0, balance));
       } catch (err) {
         dispatch(setError({ message: 'Failed to load transactions', error: err.message }));
       }
     };
-    
-    if (auth.currentUser) {
-      fetchTransactions();
-    }
-  }, [dispatch, transactionsRef]);
+
+    fetchTransactions();
+  }, [dispatch]);
 
   const handleWithdrawal = async (withdrawalData) => {
-    // Validate authentication
     if (!auth.currentUser) {
       throw new Error('You must be logged in to make a withdrawal');
     }
@@ -53,62 +56,29 @@ const Dashboard = () => {
     setWithdrawalError('');
 
     try {
-      const transaction = {
-        amount: withdrawalData.amount,
-        reason: withdrawalData.reason,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        userId: auth.currentUser.uid,
-        transaction_type: 'withdrawal',
-        timestamp: new Date()
-      };
+      // Create withdrawal request (admin will approve/reject)
+      const result = await withdrawalTaskService.createWithdrawalRequest(
+        {
+          amount: withdrawalData.amount,
+          description: withdrawalData.reason || ''
+        },
+        {
+          uid: auth.currentUser.uid,
+          email: auth.currentUser.email,
+          displayName: auth.currentUser.displayName
+        }
+      );
 
-      const docRef = await addDoc(transactionsRef, transaction);
-      dispatch(addTransaction({ id: docRef.id, ...transaction }));
-
-      // Log withdrawal request for audit
-      try {
-        const transactionDoc = {
-          id: docRef.id,
-          ...transaction
-        };
-
-        await auditService.logTransactionEvent(
-          AUDIT_EVENTS.TRANSACTION_CREATED,
-          {
-            uid: auth.currentUser.uid,
-            email: auth.currentUser.email,
-            displayName: auth.currentUser.displayName
-          },
-          {
-            ...transactionDoc,
-            request_type: 'withdrawal_request',
-            initiated_by: 'customer'
-          }
-        );
-      } catch (auditError) {
-        console.warn('Failed to log withdrawal request audit event:', auditError);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to create withdrawal request');
       }
-      
-      // Create corresponding house deposit
-      try {
-        await withdrawalDepositService.createHouseDeposit(
-          transaction,
-          docRef.id,
-          auth.currentUser
-        );
-        console.log('✅ House deposit created for withdrawal:', docRef.id);
-      } catch (houseDepositError) {
-        console.warn('Failed to create house deposit for withdrawal:', houseDepositError);
-        // Don't fail the withdrawal if house deposit fails
-      }
-      
-      // Update user balance optimistically
+
+      // Update balance optimistically
       setUserBalance(prev => Math.max(0, prev - withdrawalData.amount));
     } catch (err) {
-      console.error('Error creating withdrawal:', err);
+      console.error('Error creating withdrawal request:', err);
       setWithdrawalError(err.message || 'Failed to create withdrawal request');
-      throw err; // Re-throw to be handled by form
+      throw err;
     } finally {
       setLoading(false);
     }

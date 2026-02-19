@@ -50,16 +50,8 @@ const Profile = () => {
         setLoading(true);
         setError('');
         
-        // Use the same getUserData service as AccountOverview
-        console.log('📱 Loading profile for user:', user.uid, 'email:', user.email);
-        
-        // Try to get user data by UID first, then by email (same pattern as AccountOverview)
+        // Load user data by UID (accounts are keyed by UID)
         let userData = await getUserData(user.uid, user);
-        
-        if (!userData && user.email) {
-          console.log('📱 Trying to load by email:', user.email);
-          userData = await getUserData(user.email, user);
-        }
         
         if (userData) {
           console.log('📱 Loaded user data:', userData); // Debug log
@@ -143,21 +135,10 @@ const Profile = () => {
         return;
       }
 
-      // First, get the current user data to find the correct document ID
-      let userData = await getUserData(user.uid, user);
-      if (!userData && user.email) {
-        userData = await getUserData(user.email, user);
-      }
-      
-      if (!userData) {
-        throw new Error('Account not found. Please contact an administrator.');
-      }
-      
-      // Use the document ID from the userData (could be email or uid)
-      const docId = userData.id || userData.user_id || user.email;
-      secureLog('info', 'Updating profile document', { docId, userId: user.uid });
-      
-      const userRef = doc(db, 'accounts', docId);
+      // Account docs are keyed by UID
+      secureLog('info', 'Updating profile document', { docId: user.uid });
+
+      const userRef = doc(db, 'accounts', user.uid);
       
       // Prepare update data with sanitized values
       const updateData = {
@@ -181,9 +162,7 @@ const Profile = () => {
           {
             displayName: sanitizedData.displayName,
             mobile: sanitizedData.mobile,
-            preferences: formData.preferences,
-            mobile_changed: userData.mobile !== sanitizedData.mobile,
-            preferences_changed: JSON.stringify(userData.preferences) !== JSON.stringify(formData.preferences)
+            preferences: formData.preferences
           }
         );
       } catch (auditError) {
@@ -209,11 +188,7 @@ const Profile = () => {
       if (!user?.uid) return;
       
       try {
-        // Use the same getUserData service
         let userData = await getUserData(user.uid, user);
-        if (!userData && user.email) {
-          userData = await getUserData(user.email, user);
-        }
         
         if (userData) {
           setFormData({

@@ -15,14 +15,13 @@ const useAccountData = () => {
   const { user_id: paramUserId } = useParams();
   
   // Determine which user's data to load
+  // Account docs are keyed by UID (post-migration)
   const targetUserId = useMemo(() => {
     if (isAdmin && paramUserId) {
       return paramUserId; // Admin viewing specific user
     }
-    // For regular users viewing their own account, use email as document ID
-    // since accounts are keyed on email, not UID
-    return user?.email || user?.uid; // Regular user viewing their own data
-  }, [isAdmin, paramUserId, user?.email, user?.uid]);
+    return user?.uid; // Regular user viewing their own data
+  }, [isAdmin, paramUserId, user?.uid]);
 
   // Check permissions - wait for auth to be ready
   const hasAccess = useMemo(() => {
@@ -36,7 +35,7 @@ const useAccountData = () => {
     }
     
     // For regular users viewing their own account (/account route), allow access
-    if (!paramUserId && (targetUserId === user.uid || targetUserId === user.email)) {
+    if (!paramUserId && targetUserId === user.uid) {
       return true;
     }
     
@@ -48,11 +47,9 @@ const useAccountData = () => {
   const shouldFetchData = hasAccess && targetUserId && !authLoading;
   
   // Always call hooks (hooks must be at top level)
-  // Use email/targetUserId for user data (accounts keyed by email)
+  // Both accounts and transactions are keyed by UID
   const userData = useUserData(shouldFetchData ? targetUserId : null, user);
-  // Use user_id from the account doc for transactions (keyed by user_id field, which is the UID)
-  const transactionUserId = userData?.userData?.user_id || user?.uid;
-  const transactions = useTransactions(shouldFetchData ? transactionUserId : null, user);
+  const transactions = useTransactions(shouldFetchData ? targetUserId : null, user);
   const transactionSummary = useTransactionSummary(transactions.transactions);
 
   // Handle navigation for access denied

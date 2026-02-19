@@ -18,7 +18,6 @@ const SimplifiedAccountOverview = () => {
   const [transactionSummary, setTransactionSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [resolvedDocId, setResolvedDocId] = useState(null);
 
   const isAdmin = user?.administrator || user?.isAdmin;
 
@@ -189,6 +188,7 @@ const SimplifiedAccountOverview = () => {
     };
   }, [isAdmin, handleTransactionEdit, handleTransactionDelete]);
 
+  // Subscribe to user data by UID (accounts are keyed by UID)
   useEffect(() => {
     if (!user) {
       setError('Not authenticated');
@@ -202,26 +202,12 @@ const SimplifiedAccountOverview = () => {
 
     setLoading(true);
 
-    // Try realtime subscription (works when targetUserId is an email/doc ID)
-    const unsubscribeUserData = subscribeToUserData(targetUserId, async (updatedData) => {
+    const unsubscribeUserData = subscribeToUserData(targetUserId, (updatedData) => {
       if (updatedData) {
         setUserData(updatedData);
-        setResolvedDocId(targetUserId);
         setLoading(false);
       } else {
-        // Doc not found by ID (UID used instead of email) - resolve the real doc ID
-        try {
-          const fallbackData = await getUserData(targetUserId, user);
-          if (fallbackData) {
-            setUserData(fallbackData);
-            // fallbackData.id is the actual doc ID (email) - store it for realtime sub
-            setResolvedDocId(fallbackData.id);
-          } else {
-            setError('User account not found');
-          }
-        } catch (err) {
-          setError('Failed to load user data');
-        }
+        setError('User account not found');
         setLoading(false);
       }
     }, user);
@@ -231,26 +217,11 @@ const SimplifiedAccountOverview = () => {
     };
   }, [user, targetUserId]);
 
-  // Once we resolve the real doc ID, subscribe for realtime user data updates
+  // Subscribe to transactions using targetUserId (UID)
   useEffect(() => {
-    if (!user || !resolvedDocId || resolvedDocId === targetUserId) return;
+    if (!user || !targetUserId) return;
 
-    const unsubscribe = subscribeToUserData(resolvedDocId, (updatedData) => {
-      if (updatedData) {
-        setUserData(updatedData);
-      }
-    }, user);
-
-    return () => unsubscribe?.();
-  }, [user, resolvedDocId, targetUserId]);
-
-  // Subscribe to transactions using user_id (UID) from account doc, not the URL param (email)
-  useEffect(() => {
-    if (!user || !userData?.user_id) return;
-
-    const transactionUserId = userData.user_id;
-
-    const unsubscribeTransactions = subscribeToTransactions(transactionUserId, (updatedTransactions) => {
+    const unsubscribeTransactions = subscribeToTransactions(targetUserId, (updatedTransactions) => {
       if (updatedTransactions) {
         setTransactions(updatedTransactions);
         setTransactionSummary(processTransactionSummary(updatedTransactions));
@@ -260,7 +231,7 @@ const SimplifiedAccountOverview = () => {
     return () => {
       unsubscribeTransactions?.();
     };
-  }, [user, userData?.user_id]);
+  }, [user, targetUserId]);
 
   if (loading) return <CircularProgress />;
   if (error) return <Typography color="error">{error}</Typography>;

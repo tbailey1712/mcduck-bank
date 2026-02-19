@@ -49,36 +49,16 @@ const AdminDebugInfoInner = () => {
 
     try {
       console.log('🔧 Attempting to initialize admin user:', email);
-      
-      // For initial setup, we'll manually set the database field
-      // Since you're the first admin, we can bypass the Cloud Function
-      if (user?.email === email) {
-        // Update the current user's document to have administrator: true
-        const { doc, updateDoc, getFirestore } = await import('firebase/firestore');
-        const db = getFirestore();
-        
-        const userDocRef = doc(db, 'accounts', email);
-        await updateDoc(userDocRef, {
-          administrator: true,
-          adminSince: new Date(),
-          initialAdmin: true
-        });
-        
-        // Refresh the token to update claims
-        await unifiedAuthService.refreshToken();
-        
-        setMessage(`Successfully set admin privileges for ${email}. Please refresh the page to see changes.`);
-        setEmail('');
-      } else {
-        // Try the Cloud Function for other users
-        const success = await unifiedAuthService.initializeAdminUser(email);
-        if (success) {
-          setMessage(`Successfully initialized admin user for ${email}. Please refresh the page.`);
-          setEmail('');
-        } else {
-          setError('Failed to initialize admin user. Check the console for details.');
-        }
-      }
+
+      // Use Cloud Function to set admin (sets both custom claims AND Firestore field)
+      const { default: adminCloudFunctions } = await import('../services/adminCloudFunctions');
+      await adminCloudFunctions.setupAdmin();
+
+      // Refresh the token to pick up new custom claims
+      await unifiedAuthService.refreshToken();
+
+      setMessage(`Successfully set admin privileges for ${email}. Please refresh the page to see changes.`);
+      setEmail('');
     } catch (err) {
       console.error('🔧 Admin initialization error:', err);
       setError(`Error: ${err.message}. Try refreshing the page and logging out/in again.`);

@@ -271,8 +271,7 @@ export const processAccountsAndGenerateStatements = async (year = null, month = 
       try {
         const account = accountDoc.data();
         const userId = account.user_id;
-        const email = accountDoc.id;
-        account.email = email;
+        const email = account.email || accountDoc.id;
 
         console.log(`processAccountsAndGenerateStatements(${email}): Processing Transactions`);
 

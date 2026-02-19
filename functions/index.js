@@ -59,26 +59,17 @@ const fetchInterestRate = async () => {
 };
 
 // Calculate account balance for a user (optimized)
-const getAccountBalance = async (userId, emailForCache = null) => {
+const getAccountBalance = async (userId) => {
   try {
-    // Find the existing account document first
-    let accountRef;
-    let accountSnapshot;
-    
-    if (emailForCache) {
-      // Look for existing account by user_id first, not by email
-      const accountQuery = await db.collection('accounts').where('user_id', '==', userId).limit(1).get();
-      if (!accountQuery.empty) {
-        accountRef = accountQuery.docs[0].ref;
-        accountSnapshot = accountQuery.docs[0];
-      } else {
-        // Fallback to user_id as document ID if no account found
-        accountRef = db.collection('accounts').doc(userId);
-        accountSnapshot = await accountRef.get();
+    // Look up account by UID (doc ID), fall back to email-keyed doc during transition
+    let accountRef = db.collection('accounts').doc(userId);
+    let accountSnapshot = await accountRef.get();
+    if (!accountSnapshot.exists) {
+      const q = await db.collection('accounts').where('user_id', '==', userId).limit(1).get();
+      if (!q.empty) {
+        accountRef = q.docs[0].ref;
+        accountSnapshot = q.docs[0];
       }
-    } else {
-      accountRef = db.collection('accounts').doc(userId);
-      accountSnapshot = await accountRef.get();
     }
     
     if (accountSnapshot.exists) {
@@ -439,7 +430,7 @@ const applyTemplateSubstitutions = (template, substitutions) => {
 const createMonthlyStatement = async (account, transactions, year, month) => {
   try {
     // Calculate totals
-    const balance = await getAccountBalance(account.user_id, account.email);
+    const balance = await getAccountBalance(account.user_id);
     let totalDeposits = 0;
     let totalWithdrawals = 0;
     let interestEarned = 0;
@@ -593,6 +584,26 @@ exports.setupAdmin = onCall(
 
       console.log(`✅ Successfully set administrator claim for ${targetEmail}`);
 
+      // Sync administrator field to Firestore — try UID doc first, then find by email
+      try {
+        let accountRef = db.collection('accounts').doc(targetUid);
+        let accountSnap = await accountRef.get();
+        if (!accountSnap.exists) {
+          // Fallback: find by email field (transition period)
+          const q = await db.collection('accounts').where('email', '==', targetEmail).limit(1).get();
+          if (!q.empty) {
+            accountRef = q.docs[0].ref;
+          }
+        }
+        await accountRef.update({
+          administrator: true,
+          adminSince: admin.firestore.Timestamp.now()
+        });
+        console.log(`✅ Synced administrator field to Firestore for ${targetEmail}`);
+      } catch (firestoreError) {
+        console.warn(`⚠️ Could not sync admin field to Firestore for ${targetEmail}:`, firestoreError.message);
+      }
+
       return {
         success: true,
         message: `Admin claim set for ${targetEmail}. Please refresh your browser to apply changes.`,
@@ -607,63 +618,9 @@ exports.setupAdmin = onCall(
   }
 );
 
-// Emergency cleanup function to delete wrong account documents
-exports.cleanupWrongAccounts = onCall(
-  {
-    timeoutSeconds: 60,
-    memory: "128MiB"
-  },
-  async (request) => {
-    try {
-      // Only allow admin users
-      if (!request.auth) {
-        throw new Error('unauthenticated: Must be authenticated to call this function.');
-      }
-      
-      const isAdmin = request.auth.token.administrator === true;
-      if (!isAdmin) {
-        throw new Error('permission-denied: Only admins can cleanup accounts.');
-      }
-      
-      // These are the wrong account documents that were created (using UIDs as doc IDs)
-      const wrongAccountIds = [
-        'PK5DaE2Cd2cE1KynZuSyawkRmZA3',
-        'TJEZ0fCPMESFez0HNCl0dEu8UlA3', 
-        'drgZjPBSvXRQTwOoitunqmzkg1n2'
-      ];
-      
-      console.log('🗑️ Deleting incorrectly created account documents...');
-      
-      const results = [];
-      for (const wrongId of wrongAccountIds) {
-        try {
-          await db.collection('accounts').doc(wrongId).delete();
-          console.log(`✅ Deleted wrong account document: ${wrongId}`);
-          results.push(`✅ Deleted: ${wrongId}`);
-        } catch (error) {
-          console.error(`❌ Error deleting ${wrongId}:`, error);
-          results.push(`❌ Failed to delete: ${wrongId} - ${error.message}`);
-        }
-      }
-      
-      return {
-        success: true,
-        message: 'Cleanup completed',
-        results: results
-      };
-      
-    } catch (error) {
-      console.error('❌ Error in cleanupWrongAccounts:', error);
-      throw new Error(`Cleanup failed: ${error.message}`);
-    }
-  }
-);
-
 /**
  * Cloud Functions
  */
-
-// Calculate Interest Payment Function
 
 // Generate and Send Monthly Statements Function
 exports.sendStatements = onCall(
@@ -704,10 +661,10 @@ exports.sendStatements = onCall(
         let accountsSnapshot;
 
         if (targetCustomerEmail) {
-          // Filter to specific customer by document ID (email)
-          const specificDoc = await accountsRef.doc(targetCustomerEmail).get();
-          if (specificDoc.exists) {
-            accountsSnapshot = { docs: [specificDoc] };
+          // Find customer by email field (works for both UID-keyed and email-keyed docs)
+          const emailQuery = await accountsRef.where('email', '==', targetCustomerEmail).limit(1).get();
+          if (!emailQuery.empty) {
+            accountsSnapshot = { docs: emailQuery.docs };
             console.log(`Found specific customer account: ${targetCustomerEmail}`);
           } else {
             throw new Error(`Customer not found: ${targetCustomerEmail}`);
@@ -721,7 +678,7 @@ exports.sendStatements = onCall(
           try {
             const account = accountDoc.data();
             const userId = account.user_id;
-            const email = accountDoc.id;
+            const email = account.email || accountDoc.id;
             const name = account.displayName || account.name || 'Account Holder';
             account.email = email;
 
@@ -812,7 +769,7 @@ exports.scheduledPayInterest = onSchedule({
     for (const accountDoc of accountsSnapshot.docs) {
       const accountData = accountDoc.data();
       const userId = accountData.user_id;
-      const email = accountDoc.id;  // Email is the document ID
+      const email = accountData.email || accountDoc.id;
       
       try {
         // Check if interest already paid this month
@@ -823,7 +780,7 @@ exports.scheduledPayInterest = onSchedule({
         }
         
         // Calculate current balance
-        const balance = await getAccountBalance(userId, email);
+        const balance = await getAccountBalance(userId);
         
         if (balance > 0) {
           const interestAmount = balance * interestRate;
@@ -1022,6 +979,316 @@ ${message}`;
 );
 
 // testSMS removed - was a debug function that should not be deployed to production
+
+/**
+ * Fix all accounts where user_id is email-based instead of Firebase UID.
+ * Migrates account docs and all associated transactions/withdrawal_tasks.
+ * Admin-only, one-time data migration.
+ */
+/**
+ * Migrate account documents from email-keyed to UID-keyed.
+ * For each account where doc ID contains '@', creates a new doc keyed by UID,
+ * copies all data, and deletes the old email-keyed doc. Idempotent.
+ */
+exports.migrateAccountsToUidKeys = onCall(
+  { timeoutSeconds: 300, memory: "512MiB" },
+  async (request) => {
+    if (!request.auth) {
+      throw new Error('unauthenticated: Must be authenticated.');
+    }
+    if (request.auth.token.administrator !== true) {
+      throw new Error('permission-denied: Only admins can run this migration.');
+    }
+
+    console.log('🔄 Starting email-to-UID account migration...');
+    const accountsSnapshot = await db.collection('accounts').get();
+    const results = [];
+
+    for (const accountDoc of accountsSnapshot.docs) {
+      const docId = accountDoc.id;
+      const data = accountDoc.data();
+
+      // Skip if doc ID doesn't contain '@' (already UID-keyed)
+      if (!docId.includes('@')) {
+        results.push({ docId, status: 'skip', message: 'Already UID-keyed' });
+        continue;
+      }
+
+      const uid = data.user_id;
+      const email = data.email || docId;
+
+      if (!uid || uid.includes('@')) {
+        // user_id field is missing or is still an email — look up the real UID
+        let firebaseUser;
+        try {
+          firebaseUser = await admin.auth().getUserByEmail(email);
+        } catch (err) {
+          results.push({ docId, status: 'error', message: `No Firebase Auth user: ${err.message}` });
+          continue;
+        }
+        data.user_id = firebaseUser.uid;
+        data.uid = firebaseUser.uid;
+      }
+
+      const targetUid = data.user_id;
+
+      // Check if UID-keyed doc already exists
+      const existingUidDoc = await db.collection('accounts').doc(targetUid).get();
+      if (existingUidDoc.exists) {
+        // UID doc already exists — delete the old email-keyed doc
+        await accountDoc.ref.delete();
+        results.push({ docId, targetUid, status: 'dedup', message: 'UID doc existed, deleted email doc' });
+        continue;
+      }
+
+      // Batch: create new UID-keyed doc + delete old email-keyed doc
+      const batch = db.batch();
+      const newRef = db.collection('accounts').doc(targetUid);
+      batch.set(newRef, {
+        ...data,
+        email: email,
+        user_id: targetUid,
+        uid: targetUid,
+        _migrated_from: docId,
+        _migrated_at: admin.firestore.Timestamp.now()
+      });
+      batch.delete(accountDoc.ref);
+      await batch.commit();
+
+      results.push({ docId, targetUid, status: 'migrated' });
+      console.log(`✅ Migrated ${docId} → ${targetUid}`);
+    }
+
+    const migrated = results.filter(r => r.status === 'migrated');
+    const deduped = results.filter(r => r.status === 'dedup');
+    console.log(`🏁 Migration complete: ${migrated.length} migrated, ${deduped.length} deduped, ${results.length} total`);
+
+    return { success: true, totalAccounts: results.length, migrated: migrated.length, results };
+  }
+);
+
+// ============================================================
+// Account Management Cloud Functions
+// ============================================================
+
+/**
+ * Create a new user account (replaces client-side account creation)
+ * Only allows creating an account for the authenticated caller's own email
+ */
+exports.createAccount = onCall(
+  { timeoutSeconds: 60, memory: "128MiB" },
+  async (request) => {
+    if (!request.auth) {
+      throw new Error('unauthenticated: Must be authenticated to create an account.');
+    }
+
+    const email = request.auth.token.email;
+    const uid = request.auth.uid;
+
+    // Check if account already exists (by UID first, then email for transition)
+    const existingByUid = await db.collection('accounts').doc(uid).get();
+    if (existingByUid.exists) {
+      return { success: true, account: existingByUid.data(), alreadyExists: true };
+    }
+    const existingByEmail = await db.collection('accounts').doc(email).get();
+    if (existingByEmail.exists) {
+      return { success: true, account: existingByEmail.data(), alreadyExists: true };
+    }
+
+    // Check system config for registration permission
+    const configSnap = await db.collection('system').doc('config').get();
+    const allowNewUsers = configSnap.exists ? (configSnap.data().allowNewUsers || false) : false;
+
+    // Also check if caller is already an admin (admins always allowed)
+    const isCallerAdmin = request.auth.token.administrator === true;
+
+    if (!allowNewUsers && !isCallerAdmin) {
+      console.log(`🚫 New user registration denied for ${email} (registration disabled)`);
+      throw new Error('permission-denied: New user registration is currently disabled.');
+    }
+
+    const now = admin.firestore.Timestamp.now();
+    const newAccount = {
+      user_id: uid,
+      uid: uid,
+      email: email,
+      displayName: request.auth.token.name || email,
+      photoURL: request.auth.token.picture || '',
+      emailVerified: request.auth.token.email_verified || false,
+      administrator: false,
+      balance: 0,
+      createdAt: now,
+      lastLogin: now,
+      lastIp: request.rawRequest?.ip || request.rawRequest?.headers?.['x-forwarded-for'] || 'unknown',
+      lastActivity: now
+    };
+
+    await db.collection('accounts').doc(uid).set(newAccount);
+    console.log(`✅ New account created for ${email} (${uid}) — keyed by UID`);
+
+    return { success: true, account: newAccount };
+  }
+);
+
+/**
+ * Update session info for the authenticated user (replaces client-side session writes)
+ * Writes lastLogin, lastIp, lastSessionToken, lastActivity to the user's account
+ */
+exports.updateSessionInfo = onCall(
+  { timeoutSeconds: 30, memory: "128MiB" },
+  async (request) => {
+    if (!request.auth) {
+      throw new Error('unauthenticated: Must be authenticated to update session info.');
+    }
+
+    const uid = request.auth.uid;
+    const email = request.auth.token.email;
+    const sessionToken = request.data?.sessionToken || '';
+    const ip = request.rawRequest?.ip ||
+               request.rawRequest?.headers?.['x-forwarded-for'] ||
+               'unknown';
+
+    // Try UID-keyed doc first, fall back to email-keyed for transition
+    let accountRef = db.collection('accounts').doc(uid);
+    let accountSnap = await accountRef.get();
+    if (!accountSnap.exists) {
+      accountRef = db.collection('accounts').doc(email);
+      accountSnap = await accountRef.get();
+    }
+
+    if (!accountSnap.exists) {
+      throw new Error('not-found: Account not found.');
+    }
+
+    await accountRef.update({
+      lastLogin: admin.firestore.Timestamp.now(),
+      lastIp: ip,
+      lastSessionToken: sessionToken,
+      lastActivity: admin.firestore.Timestamp.now()
+    });
+
+    return { success: true };
+  }
+);
+
+/**
+ * Merge account when a user's Firebase UID changes (replaces client-side merge)
+ * Updates account UID fields and migrates transactions/withdrawal_tasks
+ */
+exports.mergeAccount = onCall(
+  { timeoutSeconds: 120, memory: "256MiB" },
+  async (request) => {
+    if (!request.auth) {
+      throw new Error('unauthenticated: Must be authenticated to merge account.');
+    }
+
+    const email = request.auth.token.email;
+    const newUid = request.auth.uid;
+
+    // Try UID-keyed doc first, fall back to email-keyed for transition
+    let accountRef = db.collection('accounts').doc(newUid);
+    let accountSnap = await accountRef.get();
+    if (!accountSnap.exists) {
+      accountRef = db.collection('accounts').doc(email);
+      accountSnap = await accountRef.get();
+    }
+
+    if (!accountSnap.exists) {
+      throw new Error('not-found: Account not found for merge.');
+    }
+
+    const accountData = accountSnap.data();
+    const oldUid = accountData.user_id;
+
+    if (oldUid === newUid && accountSnap.id === newUid) {
+      return { success: true, message: 'No merge needed', migratedTransactions: 0 };
+    }
+
+    console.log(`🔄 Merging account ${email}: ${oldUid} → ${newUid}`);
+
+    // If doc is still email-keyed, re-key it to UID
+    if (accountSnap.id !== newUid) {
+      const newRef = db.collection('accounts').doc(newUid);
+      const batch = db.batch();
+      batch.set(newRef, {
+        ...accountData,
+        user_id: newUid,
+        uid: newUid,
+        email: email,
+        previousUserId: oldUid,
+        lastMerged: admin.firestore.Timestamp.now(),
+        photoURL: request.auth.token.picture || accountData.photoURL || '',
+        displayName: request.auth.token.name || accountData.displayName || email,
+        emailVerified: request.auth.token.email_verified || false,
+        _migrated_from: accountSnap.id
+      });
+      batch.delete(accountRef);
+      await batch.commit();
+      accountRef = newRef;
+    } else {
+      // Doc is already UID-keyed, just update fields
+      await accountRef.update({
+        user_id: newUid,
+        uid: newUid,
+        previousUserId: oldUid,
+        lastMerged: admin.firestore.Timestamp.now(),
+        photoURL: request.auth.token.picture || accountData.photoURL || '',
+        displayName: request.auth.token.name || accountData.displayName || email,
+        emailVerified: request.auth.token.email_verified || false
+      });
+    }
+
+    // Migrate transactions in batches of 500
+    let totalMigrated = 0;
+    const txnQuery = await db.collection('transactions')
+      .where('user_id', '==', oldUid).get();
+
+    let txnBatch = db.batch();
+    let batchCount = 0;
+    for (const txnDoc of txnQuery.docs) {
+      txnBatch.update(txnDoc.ref, { user_id: newUid });
+      batchCount++;
+      totalMigrated++;
+      if (batchCount >= 500) {
+        await txnBatch.commit();
+        txnBatch = db.batch();
+        batchCount = 0;
+      }
+    }
+    if (batchCount > 0) {
+      await txnBatch.commit();
+    }
+
+    // Migrate withdrawal tasks
+    const taskQuery = await db.collection('withdrawal_tasks')
+      .where('user_id', '==', oldUid).get();
+
+    if (!taskQuery.empty) {
+      let taskBatch = db.batch();
+      let taskBatchCount = 0;
+      for (const taskDoc of taskQuery.docs) {
+        taskBatch.update(taskDoc.ref, { user_id: newUid });
+        taskBatchCount++;
+        if (taskBatchCount >= 500) {
+          await taskBatch.commit();
+          taskBatch = db.batch();
+          taskBatchCount = 0;
+        }
+      }
+      if (taskBatchCount > 0) {
+        await taskBatch.commit();
+      }
+    }
+
+    console.log(`✅ Account merged for ${email}: migrated ${totalMigrated} transactions`);
+
+    return {
+      success: true,
+      message: `Account merged successfully`,
+      migratedTransactions: totalMigrated
+    };
+  }
+);
 
 // Helper function to create and send individual statement
 const createAndSendStatement = async (userId, userEmail) => {

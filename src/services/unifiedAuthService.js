@@ -8,8 +8,9 @@ import { getAuth, onAuthStateChanged, onIdTokenChanged, signOut, signInWithPopup
 import { getUserData } from './userService';
 import auditService, { AUDIT_EVENTS } from './auditService';
 import { secureLog, RateLimiter } from '../utils/security';
-import { doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
+import adminCloudFunctions from './adminCloudFunctions';
 
 /**
  * Secure session configuration
@@ -193,58 +194,58 @@ class UnifiedAuthService {
                          existingAuth.user?.uid !== firebaseUser.uid ||
                          (Date.now() - (existingAuth.lastActivity || 0)) > 60000; // More than 1 minute since last activity
 
-        // Check if this is a truly new user (doesn't exist in accounts)
-        if (isNewLogin) {
-          const existingAccount = await this.findAccountByEmail(firebaseUser.email);
-          
-          if (!existingAccount) {
-            // This is a truly NEW user - check registration toggle
-            const systemConfig = await this.getSystemConfig();
-            
-            if (!systemConfig.allowNewUsers) {
-              secureLog('warn', 'New user registration denied', { 
+        // Always check account exists and UID matches (merge if needed)
+        const existingAccount = await this.findAccountByEmail(firebaseUser.email);
+
+        if (!existingAccount) {
+          if (!isNewLogin) {
+            // Session restore but no account found — sign out
+            secureLog('error', 'Account not found on session restore', { email: firebaseUser.email });
+            await this.signOut();
+            return;
+          }
+
+          // This is a truly NEW user - check registration toggle
+          const systemConfig = await this.getSystemConfig();
+
+          if (!systemConfig.allowNewUsers) {
+            secureLog('warn', 'New user registration denied', {
+              email: firebaseUser.email,
+              reason: 'new_user_registration_disabled',
+              uid: firebaseUser.uid
+            });
+
+            try {
+              await auditService.logSecurityEvent(AUDIT_EVENTS.LOGIN_DENIED, null, {
                 email: firebaseUser.email,
+                uid: firebaseUser.uid,
                 reason: 'new_user_registration_disabled',
-                uid: firebaseUser.uid 
+                timestamp: new Date().toISOString(),
+                userAgent: navigator.userAgent,
+                sessionId: this.getSessionId()
               });
-              
-              // Log denied login attempt
-              try {
-                await auditService.logSecurityEvent(AUDIT_EVENTS.LOGIN_DENIED, null, {
-                  email: firebaseUser.email,
-                  uid: firebaseUser.uid,
-                  reason: 'new_user_registration_disabled',
-                  timestamp: new Date().toISOString(),
-                  userAgent: navigator.userAgent,
-                  sessionId: this.getSessionId()
-                });
-              } catch (auditError) {
-                secureLog('warn', 'Failed to log denied login attempt', { error: auditError.message });
-              }
-              
-              await this.signOut();
-              throw new Error('New user registration is currently disabled. Please contact an administrator.');
-            } else {
-              // New user registration is ENABLED - allow them to proceed
-              secureLog('info', 'New user registration allowed', {
-                email: firebaseUser.email,
-                uid: firebaseUser.uid
-              });
-              
-              // Create a new account for this user
-              await this.createNewUserAccount(firebaseUser);
+            } catch (auditError) {
+              secureLog('warn', 'Failed to log denied login attempt', { error: auditError.message });
             }
+
+            await this.signOut();
+            throw new Error('New user registration is currently disabled. Please contact an administrator.');
           } else {
-            // Existing user - always allow, but check for account merge
-            if (existingAccount.user_id !== firebaseUser.uid) {
-              secureLog('info', 'Account merge required for existing user', {
-                email: firebaseUser.email,
-                existingUserId: existingAccount.user_id,
-                newUserId: firebaseUser.uid
-              });
-              
-              await this.mergeUserAccounts(existingAccount, firebaseUser);
-            }
+            secureLog('info', 'New user registration allowed', {
+              email: firebaseUser.email,
+              uid: firebaseUser.uid
+            });
+            await this.createNewUserAccount(firebaseUser);
+          }
+        } else {
+          // Existing user - check for UID mismatch on every auth state change
+          if (existingAccount.user_id !== firebaseUser.uid) {
+            secureLog('info', 'Account merge required (UID mismatch)', {
+              email: firebaseUser.email,
+              existingUserId: existingAccount.user_id,
+              newUserId: firebaseUser.uid
+            });
+            await this.mergeUserAccounts(existingAccount, firebaseUser);
           }
         }
 
@@ -415,33 +416,17 @@ class UnifiedAuthService {
   }
 
   /**
-   * Create new user account in Firestore
+   * Create new user account via Cloud Function
+   * Server-side: validates auth, checks allowNewUsers, sets safe defaults
    */
   async createNewUserAccount(firebaseUser) {
     try {
-      const newAccount = {
-        user_id: firebaseUser.uid,
-        uid: firebaseUser.uid,
-        email: firebaseUser.email,
-        displayName: firebaseUser.displayName || firebaseUser.email,
-        photoURL: firebaseUser.photoURL || '',
-        emailVerified: firebaseUser.emailVerified || false,
-        administrator: false,
-        balance: 0,
-        createdAt: new Date(),
-        lastLogin: new Date(),
-        lastIp: 'client-detected',
-        lastSessionToken: this.getSessionId(),
-        lastActivity: new Date()
-      };
+      const result = await adminCloudFunctions.createAccount();
 
-      const accountRef = doc(db, 'accounts', firebaseUser.email);
-      await setDoc(accountRef, newAccount);
-
-      secureLog('info', 'New user account created successfully', {
+      secureLog('info', 'New user account created via Cloud Function', {
         email: firebaseUser.email,
         uid: firebaseUser.uid,
-        displayName: firebaseUser.displayName
+        alreadyExists: result.alreadyExists || false
       });
 
       // Log account creation for audit
@@ -452,14 +437,14 @@ class UnifiedAuthService {
           displayName: firebaseUser.displayName
         }, {
           sessionId: this.getSessionId(),
-          newAccountCreated: true,
+          newAccountCreated: !result.alreadyExists,
           accountCreationTimestamp: new Date().toISOString()
         });
       } catch (auditError) {
         secureLog('warn', 'Failed to log new account creation', { error: auditError.message });
       }
 
-      return newAccount;
+      return result.account;
     } catch (error) {
       secureLog('error', 'Failed to create new user account', {
         email: firebaseUser.email,
@@ -530,30 +515,18 @@ class UnifiedAuthService {
   }
 
   /**
-   * Merge user accounts when Firebase UID doesn't match existing account
+   * Merge user accounts via Cloud Function when Firebase UID doesn't match existing account
+   * Server-side: updates account fields, migrates transactions and withdrawal_tasks
    */
   async mergeUserAccounts(existingAccount, firebaseUser) {
     try {
-      secureLog('info', 'Starting account merge process', {
+      secureLog('info', 'Starting account merge via Cloud Function', {
         email: firebaseUser.email,
         existingUserId: existingAccount.user_id,
         newUserId: firebaseUser.uid
       });
 
-      // Update the existing account with new Firebase UID
-      const accountRef = doc(db, 'accounts', existingAccount.id);
-      await updateDoc(accountRef, {
-        user_id: firebaseUser.uid,
-        uid: firebaseUser.uid,
-        photoURL: firebaseUser.photoURL || existingAccount.photoURL,
-        displayName: firebaseUser.displayName || existingAccount.displayName,
-        emailVerified: firebaseUser.emailVerified || false,
-        lastMerged: new Date(),
-        previousUserId: existingAccount.user_id
-      });
-
-      // Migrate transactions from old user_id to new user_id
-      await this.migrateTransactions(existingAccount.user_id, firebaseUser.uid);
+      const result = await adminCloudFunctions.mergeAccount();
 
       // Log account merge for audit
       try {
@@ -566,6 +539,7 @@ class UnifiedAuthService {
           newUserId: firebaseUser.uid,
           accountId: existingAccount.id,
           email: firebaseUser.email,
+          migratedTransactions: result.migratedTransactions || 0,
           mergedAt: new Date().toISOString(),
           sessionId: this.getSessionId()
         });
@@ -573,9 +547,10 @@ class UnifiedAuthService {
         secureLog('warn', 'Failed to log account merge', { error: auditError.message });
       }
 
-      secureLog('info', 'Account merge completed successfully', {
+      secureLog('info', 'Account merge completed via Cloud Function', {
         email: firebaseUser.email,
-        newUserId: firebaseUser.uid
+        newUserId: firebaseUser.uid,
+        migratedTransactions: result.migratedTransactions || 0
       });
 
     } catch (error) {
@@ -588,79 +563,24 @@ class UnifiedAuthService {
   }
 
   /**
-   * Migrate transactions from old user_id to new user_id
-   */
-  async migrateTransactions(oldUserId, newUserId) {
-    try {
-      const transactionsRef = collection(db, 'transactions');
-      const q = query(transactionsRef, where('user_id', '==', oldUserId));
-      const querySnapshot = await getDocs(q);
-
-      const batchSize = 500; // Firestore batch limit
-      let batch = [];
-      let updateCount = 0;
-
-      for (const transactionDoc of querySnapshot.docs) {
-        const transactionRef = doc(db, 'transactions', transactionDoc.id);
-        batch.push({ ref: transactionRef, data: { user_id: newUserId } });
-
-        if (batch.length >= batchSize) {
-          await this.processBatchUpdate(batch);
-          updateCount += batch.length;
-          batch = [];
-        }
-      }
-
-      // Process remaining batch
-      if (batch.length > 0) {
-        await this.processBatchUpdate(batch);
-        updateCount += batch.length;
-      }
-
-      secureLog('info', 'Transaction migration completed', {
-        oldUserId,
-        newUserId,
-        migratedTransactions: updateCount
-      });
-
-      return updateCount;
-    } catch (error) {
-      secureLog('error', 'Transaction migration failed', {
-        oldUserId,
-        newUserId,
-        error: error.message
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Process batch updates for transaction migration
-   */
-  async processBatchUpdate(batch) {
-    const promises = batch.map(({ ref, data }) => updateDoc(ref, data));
-    await Promise.all(promises);
-  }
-
-  /**
    * Load user data with error handling
    */
   async loadUserData(firebaseUser) {
     try {
-      // Try loading by email first (most common)
-      let userData = await getUserData(firebaseUser.email);
-      
-      // Fallback to UID if email lookup fails
-      if (!userData) {
-        userData = await getUserData(firebaseUser.uid);
+      // Try loading by UID first (accounts are keyed by UID)
+      let userData = await getUserData(firebaseUser.uid);
+
+      // Fallback to email for accounts not yet migrated
+      if (!userData && firebaseUser.email) {
+        userData = await getUserData(firebaseUser.email);
       }
 
       return userData;
     } catch (error) {
-      secureLog('error', 'Failed to load user data', { 
-        uid: firebaseUser.uid, 
+      secureLog('error', 'Failed to load user data', {
+        uid: firebaseUser.uid,
         email: firebaseUser.email,
-        error: error.message 
+        error: error.message
       });
       return null;
     }
@@ -676,7 +596,7 @@ class UnifiedAuthService {
     return {
       isAuthenticated: true,
       user: {
-        uid: userData.user_id || firebaseUser.uid,
+        uid: firebaseUser.uid,
         email: userData.email || firebaseUser.email,
         displayName: userData.displayName || firebaseUser.displayName,
         photoURL: userData.photoURL || firebaseUser.photoURL,
@@ -694,19 +614,12 @@ class UnifiedAuthService {
   }
 
   /**
-   * Update last login timestamp
+   * Update last login timestamp via Cloud Function
+   * Server-side: writes lastLogin, lastIp (from request), lastSessionToken, lastActivity
    */
   async updateLastLogin(userData, firebaseUser) {
     try {
-      const docId = userData.id || userData.user_id || firebaseUser.email;
-      const userRef = doc(db, 'accounts', docId);
-      
-      await setDoc(userRef, {
-        lastLogin: new Date(),
-        lastIp: 'server-detected', // IP will be detected server-side
-        lastSessionToken: this.getSessionId(),
-        lastActivity: new Date()
-      }, { merge: true });
+      await adminCloudFunctions.updateSessionInfo(this.getSessionId());
     } catch (error) {
       secureLog('error', 'Failed to update last login', { error: error.message });
     }

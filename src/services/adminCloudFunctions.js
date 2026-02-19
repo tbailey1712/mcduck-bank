@@ -183,6 +183,65 @@ class AdminCloudFunctions {
   }
 
   /**
+   * Create a new user account via Cloud Function
+   * Server-side: checks allowNewUsers config, sets safe defaults
+   * @returns {Promise<Object>} Created account data
+   */
+  async createAccount() {
+    try {
+      console.log('🔐 Calling createAccount Cloud Function...');
+      if (!this.createAccountFunction) {
+        this.createAccountFunction = httpsCallable(functions, 'createAccount');
+      }
+      const result = await this.createAccountFunction({});
+      console.log('✅ Account creation completed:', result.data);
+      return result.data;
+    } catch (error) {
+      console.error('❌ Error calling createAccount:', error);
+      throw new Error(`Account creation failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Update session info via Cloud Function (server writes lastLogin, lastIp, etc.)
+   * @param {string} sessionToken - Client session token
+   * @returns {Promise<Object>} Success status
+   */
+  async updateSessionInfo(sessionToken) {
+    try {
+      if (!this.updateSessionInfoFunction) {
+        this.updateSessionInfoFunction = httpsCallable(functions, 'updateSessionInfo');
+      }
+      const result = await this.updateSessionInfoFunction({ sessionToken });
+      return result.data;
+    } catch (error) {
+      console.warn('⚠️ Session info update failed (non-critical):', error.message);
+      // Non-critical: don't throw, just log
+      return { success: false };
+    }
+  }
+
+  /**
+   * Merge account when UID changes via Cloud Function
+   * Server-side: updates account fields and migrates transactions
+   * @returns {Promise<Object>} Merge results
+   */
+  async mergeAccount() {
+    try {
+      console.log('🔐 Calling mergeAccount Cloud Function...');
+      if (!this.mergeAccountFunction) {
+        this.mergeAccountFunction = httpsCallable(functions, 'mergeAccount');
+      }
+      const result = await this.mergeAccountFunction({});
+      console.log('✅ Account merge completed:', result.data);
+      return result.data;
+    } catch (error) {
+      console.error('❌ Error calling mergeAccount:', error);
+      throw new Error(`Account merge failed: ${error.message}`);
+    }
+  }
+
+  /**
    * Check if the current user has admin privileges
    * This checks the client-side auth state - server-side validation happens in Cloud Functions
    * @param {Object} user - Firebase Auth user object
