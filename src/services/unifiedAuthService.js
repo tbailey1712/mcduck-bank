@@ -194,8 +194,22 @@ class UnifiedAuthService {
                          existingAuth.user?.uid !== firebaseUser.uid ||
                          (Date.now() - (existingAuth.lastActivity || 0)) > 60000; // More than 1 minute since last activity
 
-        // Always check account exists and UID matches (merge if needed)
-        const existingAccount = await this.findAccountByEmail(firebaseUser.email);
+        // Check if account exists by direct UID doc read
+        // (Collection queries like where('email','==') fail for non-admin users
+        //  because Firestore rules require accountId == request.auth.uid for reads)
+        let existingAccount = null;
+        try {
+          const accountRef = doc(db, 'accounts', firebaseUser.uid);
+          const accountSnap = await getDoc(accountRef);
+          if (accountSnap.exists()) {
+            existingAccount = { id: accountSnap.id, ...accountSnap.data() };
+          }
+        } catch (uidLookupError) {
+          secureLog('warn', 'Failed to read account by UID', {
+            uid: firebaseUser.uid,
+            error: uidLookupError.message
+          });
+        }
 
         if (!existingAccount) {
           if (!isNewLogin) {
@@ -237,17 +251,8 @@ class UnifiedAuthService {
             });
             await this.createNewUserAccount(firebaseUser);
           }
-        } else {
-          // Existing user - check for UID mismatch on every auth state change
-          if (existingAccount.user_id !== firebaseUser.uid) {
-            secureLog('info', 'Account merge required (UID mismatch)', {
-              email: firebaseUser.email,
-              existingUserId: existingAccount.user_id,
-              newUserId: firebaseUser.uid
-            });
-            await this.mergeUserAccounts(existingAccount, firebaseUser);
-          }
         }
+        // Account found by UID — no merge check needed (doc key IS the UID)
 
         const userData = await this.loadUserData(firebaseUser);
         

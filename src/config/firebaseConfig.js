@@ -36,7 +36,7 @@ if (config.isDevelopment && config.development.useEmulator) {
     
     // Connect to Firestore emulator
     if (!db._delegate._settings?.host?.includes('localhost')) {
-      connectFirestoreEmulator(db, 'localhost', 8080);
+      connectFirestoreEmulator(db, 'localhost', 8181);
     }
     
     // Connect to Functions emulator
